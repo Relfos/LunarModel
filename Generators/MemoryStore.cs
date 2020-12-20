@@ -11,13 +11,14 @@ namespace LunarModel.Generators
         public override void Namespaces(StringBuilder sb)
         {
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine();
         }
 
         public override void Declarations(StringBuilder sb, IEnumerable<Entity> entities)
         {
             foreach (var entity in entities)
             {
-                var decl = $"Dictionary<ulong, {entity.Name}>";
+                var decl = $"Dictionary<UInt64, {entity.Name}>";
                 var mapName = $"_{entity.Name.CapLower()}s";
                 _mapNames[entity] = mapName;
                 sb.AppendLine($"\t\tprivate {decl} {mapName} = new {decl}();");
@@ -61,6 +62,16 @@ namespace LunarModel.Generators
             sb.AppendLine($"\t\t\t\treturn true;");
             sb.AppendLine("\t\t\t}");
             sb.AppendLine("\t\t\treturn false;");
+        }
+
+        public override void Find(StringBuilder sb, Entity entity)
+        {
+            var varName = $"{entity.Name.CapLower()}";
+            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.Contains({varName}))");
+            sb.AppendLine("\t\t\t{");
+            sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{varName}];");
+            sb.AppendLine("\t\t\t}");
+            sb.AppendLine("\t\t\treturn null;");
         }
     }
 }

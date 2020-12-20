@@ -8,15 +8,25 @@ using LunarLabs.Parser;
 
 namespace LunarModel
 {
+    [Flags]
+    public enum FieldFlags
+    {
+        None = 0,
+        Editable = 1,
+        Hidden = 2,
+    }
+
     public class Field
     {
         public string Name;
         public string Type;
+        public FieldFlags Flags;
 
-        public Field(string name, string type)
+        public Field(string name, string type, FieldFlags flags)
         {
             Name = name;
             Type = type;
+            Flags = flags;
         }
     }
 
@@ -66,6 +76,7 @@ namespace LunarModel
         public abstract void Declarations(StringBuilder sb, IEnumerable<Entity> entities);
         public abstract void Create(StringBuilder sb, Entity entity);
         public abstract void Delete(StringBuilder sb, Entity entity);
+        public abstract void Find(StringBuilder sb, Entity entity);
         public abstract void List(StringBuilder sb, Entity entity);
         public abstract void Count(StringBuilder sb, Entity entity);
         public abstract void Aggregate(StringBuilder sb, Entity source, Entity target, string fieldName);
@@ -80,6 +91,9 @@ namespace LunarModel
         public List<Entity> Entities = new List<Entity>();
 
         private string serializationClass;
+
+        StringBuilder _sb = new StringBuilder();
+        int _tabs = 0;
 
         public Model(string name, Generator generator)
         {
@@ -117,47 +131,104 @@ namespace LunarModel
             GenerateServer();
         }
 
+        private void BeginDoc()
+        {
+            _sb.Clear();
+            _tabs = 0;
+        }
+
+        private void EndDoc(string fileName)
+        {
+            File.WriteAllText(fileName, _sb.ToString());
+        }
+
+        private void BeginRegion(string name)
+        {
+            AppendLine($"#region {name.ToUpper()}", false);
+        }
+
+        private void EndRegion()
+        {
+            AppendLine($"#endregion", false);
+        }
+
+        private void TabIn()
+        {
+            _tabs++;
+        }
+
+        private void TabOut()
+        {
+            _tabs--;
+        }
+
+        private void Append(string text, bool addTabs = true)
+        {
+            if (addTabs)
+            {
+                for (int i = 0; i < _tabs; i++)
+                    _sb.Append('\t');
+            }
+
+            _sb.Append(text);
+        }
+
+        private void AppendLine(string text = "", bool addTabs = true)
+        {
+            Append(text+"\n", addTabs);
+        }
+
         private void GenerateClasses()
         {
-            var sb = new StringBuilder();
+            BeginDoc();
 
-            sb.AppendLine($"namespace {Name}.Model");
-            sb.AppendLine("{");
-
+            AppendLine($"namespace {Name}.Model");
+            AppendLine("{");
 
             foreach (var enumm in this.Enums)
             {
-                sb.AppendLine("");
-                sb.AppendLine("\tpublic enum " + enumm.Name);
-                sb.AppendLine("\t{");
+                AppendLine();
+                TabIn();
+                AppendLine("public enum " + enumm.Name);
+                AppendLine("{");
+                TabIn();
                 foreach (var entry in enumm.Values)
                 {
-                    sb.AppendLine("\t\t"+entry + ", ");
+                    AppendLine("\t\t"+entry + ", ");
                 }
-                sb.AppendLine("\t}");
+                TabOut();
+                AppendLine("\t}");
+                TabOut();
             }
 
-            sb.AppendLine("\tpublic class Entity");
-            sb.AppendLine("\t{");
-            sb.AppendLine("\t\tpublic ulong ID { get; internal set;} ");
-            sb.AppendLine($"\t\tpublic static implicit operator ulong(Entity obj) => obj.ID;");
-            sb.AppendLine("\t}");
+            AppendLine();
+            TabIn();
+            AppendLine("public class Entity");
+            AppendLine("{");
+            TabIn();
+            AppendLine("public UInt64 ID { get; internal set;} ");
+            AppendLine($"public static implicit operator UInt64(Entity obj) => obj.ID;");
+            TabOut();
+            AppendLine("}");
+            TabOut();
 
             foreach (var entity in this.Entities)
             {
-                sb.AppendLine("");
-                sb.AppendLine($"\tpublic class {entity.Name} : Entity");
-                sb.AppendLine("\t{");
+                TabIn();
+
+                AppendLine();                
+                AppendLine($"public class {entity.Name} : Entity");
+                AppendLine("{");
 
                 if (IsAbstract(entity))
                 {
                     var enumName = $"{entity.Name}Kind";
-                    entity.Fields.Insert(0, new Field(enumName, enumName));
+                    entity.Fields.Insert(0, new Field(enumName, enumName, FieldFlags.None));
                 }
                 else
                 if (entity.Parent != null)
                 {
-                    entity.Fields.Insert(0, new Field("ParentID", "ulong"));
+                    entity.Fields.Insert(0, new Field("ParentID", "UInt64", FieldFlags.None));
                 }
 
                 foreach (var field in entity.Fields)
@@ -167,7 +238,7 @@ namespace LunarModel
                     if (Entities.Any(x => x.Name == field.Type))
                     {
                         name = field.Name.CapLower() + "ID";
-                        type = "ulong";
+                        type = "UInt64";
                     }
                     else
                     {
@@ -178,137 +249,164 @@ namespace LunarModel
                     var decl = new FieldDecl(name, type);
                     entity.Decls[field] = decl;
 
-                    sb.AppendLine($"\t\tpublic {type} {name} "+ " { get; internal set;}");
+                    AppendLine($"\tpublic {type} {name} "+ " { get; internal set;}");
                 }
 
-                sb.AppendLine("\t}");
+                AppendLine("}");
+                TabOut();
             }
 
-            sb.AppendLine("}");
+            AppendLine("}");
 
-            File.WriteAllText($"Model.cs", sb.ToString());
+            EndDoc("Model.cs");
         }
 
         private void GenerateSerialization()
         {
-            var sb = new StringBuilder();
+            BeginDoc();
 
-            sb.AppendLine($"namespace {Name}.Model");
-            sb.AppendLine("{");
+            AppendLine($"namespace {Name}.Model");
+            AppendLine("{");
 
-            sb.AppendLine($"\tpublic class {serializationClass}");
-            sb.AppendLine("\t{");
+            TabIn();
+            AppendLine($"public class {serializationClass}");
+            AppendLine("{");
 
             foreach (var entity in this.Entities)
             {
-                sb.AppendLine("");
+                AppendLine();
+                TabIn();
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic static {entity.Name} {entity.Name}FromNode(DataNode node)");
-                sb.AppendLine("\t\t{");
+                AppendLine($"public static {entity.Name} {entity.Name}FromNode(DataNode node)");
+                AppendLine("{");
                 var varName = entity.Name.CapLower();
-                sb.AppendLine($"\t\t\tvar {varName} = new {entity.Name}();");
-                foreach (var entry in entity.Decls)
-                {
-                    string getStr;
+                TabIn();
+                    AppendLine($"var {varName} = new {entity.Name}();");
+                    foreach (var entry in entity.Decls)
+                    {
+                        string getStr;
                     
-                    if (Enums.Any(x => x.Name == entry.Value.Type))
-                    {
-                        getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
-                    }
-                    else
-                    {
-                        getStr = entry.Value.Type.CapUpper();
-                    }
+                        if (Enums.Any(x => x.Name == entry.Value.Type))
+                        {
+                            getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
+                        }
+                        else
+                        {
+                            getStr = entry.Value.Type.CapUpper();
+                        }
 
-                    sb.AppendLine($"\t\t\t{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
-                }
-                sb.AppendLine($"\t\t\treturn {varName};");
-                sb.AppendLine("\t\t}");
+                        AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
+                    }
+                    AppendLine($"return {varName};");
+                TabOut();
+                AppendLine("}");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic static DataNode {entity.Name}ToNode({entity.Name} {varName})");
-                sb.AppendLine("\t\t{");
+                AppendLine();
+                AppendLine($"public static DataNode {entity.Name}ToNode({entity.Name} {varName})");
+                AppendLine("{");
+
+                TabIn();
+                    AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
                 
-                sb.AppendLine($"\t\t\tvar node = DataNode.CreateObject(\"{entity.Name}\");");
-                
-                foreach (var entry in entity.Decls)
-                {
-                    sb.AppendLine($"\t\t\tnode.AddField(\"{entry.Value.Name}\", {varName}.{entry.Value.Name});");
-                }
-                sb.AppendLine($"\t\t\treturn node;");
-                sb.AppendLine("\t\t}");
+                    foreach (var entry in entity.Decls)
+                    {
+                        AppendLine($"node.AddField(\"{entry.Value.Name}\", {varName}.{entry.Value.Name});");
+                    }
+                    AppendLine($"return node;");
+                TabOut();
+                AppendLine("}");
+
+                TabOut();
             }
 
-            sb.AppendLine("}");
+            AppendLine("}");
+            TabOut();
+            AppendLine("}");
 
-            File.WriteAllText($"Serialization.cs", sb.ToString());
+            EndDoc($"Serialization.cs");
         }
 
         private void GenerateDatabase()
         {
-            var sb = new StringBuilder();
+            BeginDoc();
 
-            generator.Namespaces(sb);
+            generator.Namespaces(_sb);
 
-            sb.AppendLine($"namespace {Name}.Model");
-            sb.AppendLine("{");
+            AppendLine($"namespace {Name}.Model");
+            AppendLine("{");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\tpublic class {Name}Database");
-            sb.AppendLine("\t{");
-            generator.Declarations(sb, this.Entities);
+            AppendLine("");
+            AppendLine($"\tpublic class {Name}Database");
+            TabIn();
+            AppendLine("{");
+            generator.Declarations(_sb, this.Entities);
 
             foreach (var entity in this.Entities)
             {
-                sb.AppendLine("");
-                sb.Append($"\t\tpublic {entity.Name} Create{entity.Name}(");
+                AppendLine();
+
+                TabIn();
+                Append($"public {entity.Name} Create{entity.Name}(");
 
                 int declIndex = 0;
                 foreach (var entry in entity.Decls)
                 {
                     if (declIndex > 0)
                     {
-                        sb.Append(", ");
+                        Append(", ", false);
                     }
 
-                    sb.Append($"{entry.Value.Type} {entry.Value.Name.CapLower()}");
+                    Append($"{entry.Value.Type} {entry.Value.Name.CapLower()}", false);
 
                     declIndex++;
                 }
 
-                sb.AppendLine(")");
-                sb.AppendLine("\t\t{");
-                generator.Create(sb, entity);
-                sb.AppendLine("\t\t}");
+                AppendLine(")", false);
+                AppendLine("{");
+                generator.Create(_sb, entity);
+                AppendLine("}");
 
                 var visibility = IsAbstract(entity) ? "private":   "public";
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\t{visibility} bool Delete{entity.Name}(ulong {entity.Name.CapLower()}ID)");
-                sb.AppendLine("\t\t{");
+                AppendLine("");
+                AppendLine($"{visibility} bool Delete{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
+                AppendLine("{");
                 if (entity.Parent != null)
                 {
-                    sb.AppendLine($"\t\t\tif (!Delete{entity.Parent.Name}({entity.Name.CapLower()}ID))");
-                    sb.AppendLine("\t\t\t{");
-                    sb.AppendLine("\t\t\t\treturn false;");
-                    sb.AppendLine("\t\t\t}");
+                    TabIn();
+                    AppendLine($"if (!Delete{entity.Parent.Name}({entity.Name.CapLower()}ID))");
+                    AppendLine("{");
+                    AppendLine("\treturn false;");
+                    AppendLine("}");
+                    TabOut();
                 }
-                generator.Delete(sb, entity);
-                sb.AppendLine("\t\t}");
+                generator.Delete(_sb, entity);
+                AppendLine("}");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic {entity.Name}[] Get{entity.Name}Count()");
-                sb.AppendLine("\t\t{");
-                generator.Count(sb, entity);
-                sb.AppendLine("\t\t}");
+                AppendLine("");
+                AppendLine($"public {entity.Name} Find{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
+                AppendLine("{");
+                TabIn();
+                AppendLine("if ({entity.Name.CapLower()}ID == 0)");
+                AppendLine("{");
+                AppendLine("\t return null;");
+                AppendLine("}");
+                generator.Find(_sb, entity);
+                TabOut();
+                AppendLine("}");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic {entity.Name}[] Get{entity.Name.Pluralize()}(int page, int count)");
-                sb.AppendLine("\t\t{");
-                sb.AppendLine("\t\t\tvar offset = page * count;");
-                generator.List(sb, entity);
-                sb.AppendLine("\t\t}");
+                AppendLine();
+                AppendLine($"public {entity.Name}[] Get{entity.Name}Count()");
+                AppendLine("{");
+                generator.Count(_sb, entity);
+                AppendLine("}");
+
+                AppendLine("");
+                AppendLine($"public {entity.Name}[] Get{entity.Name.Pluralize()}(int page, int count)");
+                AppendLine("{");
+                AppendLine("\tvar offset = page * count;");
+                generator.List(_sb, entity);
+                AppendLine("}");
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -317,159 +415,184 @@ namespace LunarModel
                     {
                         var fieldName = $"{entity.Name.CapLower()}ID";
 
-                        sb.AppendLine("");
+                        AppendLine();
                         var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
-                        sb.AppendLine("");
-                        sb.AppendLine($"\t\tpublic {reference.Name}[] {methodName}(ulong {fieldName})");
-                        sb.AppendLine("\t\t{");
-                        generator.Aggregate(sb, reference, entity, fieldName);
-                        sb.AppendLine("\t\t}");
+                        AppendLine();
+                        AppendLine($"public {reference.Name}[] {methodName}(UInt64 {fieldName})");
+                        AppendLine("{");
+                        generator.Aggregate(_sb, reference, entity, fieldName);
+                        AppendLine("}");
                     }
                 }
+
+                TabOut();
             }
 
-            sb.AppendLine("\t}");
+            AppendLine("}");
+            TabOut();
 
-            sb.AppendLine("}");
+            AppendLine("}");
 
-            File.WriteAllText($"Database.cs", sb.ToString());
+            EndDoc("Database.cs");
         }
 
-        private void DoWebRequest(StringBuilder sb, string url, Action callback)
+        private void DoWebRequest(string url, Action callback)
         {
-            sb.AppendLine("\t\t\tStartCoroutine(");
-            sb.AppendLine($"\t\t\t\tWebClient.RESTRequest(URL + {url.Replace('\'', '"')}, 0, (error, desc) =>");
-            sb.AppendLine("\t\t\t\t{");
-            sb.AppendLine("\t\t\t\t\tcallback(null, desc);");
-            sb.AppendLine("\t\t\t\t}, (root) =>");
-            sb.AppendLine("\t\t\t\t{");
-            callback();
-            sb.AppendLine("\t\t\t\t});");
+            AppendLine("StartCoroutine(");
+            TabIn();
+                AppendLine($"WebClient.RESTRequest(URL + {url.Replace('\'', '"')}, 0, (error, desc) =>");
+                AppendLine("{");
+                TabIn();
+                    AppendLine("callback(null, desc);");
+                    AppendLine("}, (root) =>");
+                    AppendLine("{");
+                    callback();
+                TabOut();
+                AppendLine("});");
+            TabOut();
         }
 
-        private void DoAuthCheck(StringBuilder sb)
+        private void DoClientAuthCheck()
         {
-            sb.AppendLine("\t\t\tif (string.IsNullOrEmpty(_authToken))");
-            sb.AppendLine("\t\t\t{");
-            sb.AppendLine("\t\t\t\tcallback(null, \"Authentication required.\");");
-            sb.AppendLine("\t\t\t}");
-            sb.AppendLine();
+            AppendLine("if (string.IsNullOrEmpty(_authToken))");
+            AppendLine("{");
+            TabIn();
+                AppendLine("callback(null, \"Authentication required.\");");
+            TabOut();
+            AppendLine("}");
+            AppendLine();
         }
 
         private void GenerateClient()
         {
-            var sb = new StringBuilder();
+            BeginDoc();
 
-            generator.Namespaces(sb);
+            generator.Namespaces(_sb);
 
-            sb.AppendLine($"namespace {Name}.Model");
-            sb.AppendLine("{");
+            AppendLine($"namespace {Name}.Model");
+            AppendLine("{");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\tpublic class {Name}Client");
-            sb.AppendLine("\t{");
+            AppendLine();
+            TabIn();
+            AppendLine($"public class {Name}Client");
+            AppendLine("{");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\t\tpublic readonly string URL;");
-            sb.AppendLine("\t\tpublic User { get; private set;}");
-            sb.AppendLine($"\t\tprivate string _authToken = null;");
+            AppendLine();
+            TabIn();
 
-            sb.AppendLine("");
-            sb.AppendLine($"\t\tpublic {Name}Client(string URL)");
-            sb.AppendLine("\t\t{");
-            sb.AppendLine("\t\t\tthis.URL = URL;");
-            sb.AppendLine("\t\t}");
+            AppendLine($"public readonly string URL;");
+            AppendLine("public User { get; private set;}");
+            AppendLine($"private string _authToken = null;");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\t\tpublic void LogIn(string creds, Action<User, string> callback)");
-            sb.AppendLine("\t\t{");
-            DoWebRequest(sb, $"'/login/' + creds", () => {
-                sb.AppendLine("\t\t\t\t\tthis._authToken =root.GetString(\"token\");");
-                sb.AppendLine("\t\t\t\t\tvar node = root.GetNode(\"user\");");
-                sb.AppendLine($"\t\t\t\t\tthis.User = {serializationClass}.UserFromNode(node);");
-                sb.AppendLine($"\t\t\t\t\tcallback(this.User, null);");
+            AppendLine();
+            AppendLine($"public {Name}Client(string URL)");
+            AppendLine("{");
+            AppendLine("\tthis.URL = URL;");
+            AppendLine("}");
+
+            AppendLine();
+            AppendLine($"public void LogIn(string creds, Action<User, string> callback)");
+            AppendLine("{");
+            TabIn();
+            DoWebRequest($"'/login/' + creds", () => {
+                AppendLine("this._authToken =root.GetString(\"token\");");
+                AppendLine("var node = root.GetNode(\"user\");");
+                AppendLine($"this.User = {serializationClass}.UserFromNode(node);");
+                AppendLine($"callback(this.User, null);");
             });
-            
-            sb.AppendLine("\t\t}");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\t\tpublic void LogOut()");
-            sb.AppendLine("\t\t{");
-            sb.AppendLine("\t\t\tthis._authToken = null;");
-            sb.AppendLine("\t\t\tthis.User = null;");
-            sb.AppendLine("\t\t}");
+            TabOut();
+            AppendLine("}");
+
+            AppendLine("");
+            AppendLine($"public void LogOut()");
+            AppendLine("{");
+            TabIn();
+            AppendLine("this._authToken = null;");
+            AppendLine("this.User = null;");
+            TabOut();
+            AppendLine("}");
 
             foreach (var entity in this.Entities)
             {
-                sb.AppendLine("");
-                sb.Append($"\t\tpublic void Create{entity.Name}(");
+                AppendLine();
+                Append($"public void Create{entity.Name}(");
 
                 int declIndex = 0;
                 foreach (var entry in entity.Decls)
                 {
                     if (declIndex > 0)
                     {
-                        sb.Append(", ");
+                        Append(", ", false);
                     }
 
-                    sb.Append($"{entry.Value.Type} {entry.Value.Name.CapLower()}");
+                    Append($"{entry.Value.Type} {entry.Value.Name.CapLower()}", false);
 
                     declIndex++;
                 }
 
                 if (declIndex > 0)
                 {
-                    sb.Append(", ");
+                    Append(", ", false);
                 }
 
-                sb.Append($"Action<{entity.Name}, string> callback");
+                Append($"Action<{entity.Name}, string> callback", false);
 
-                sb.AppendLine(")");
-                sb.AppendLine("\t\t{");
-                DoAuthCheck(sb);
-                DoWebRequest(sb, $"'/create/{entity.Name}'", () => {
-                    sb.AppendLine($"\t\t\t\t\tvar data = root[{entity.Name.CapLower()}];");
-                    sb.AppendLine($"\t\t\t\t\tvar {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
-                    sb.AppendLine($"\t\t\t\t\tcallback({entity.Name.CapLower()}, null);");
+                AppendLine(")", false);
+                AppendLine("{");
+                TabIn();
+                DoClientAuthCheck();
+                DoWebRequest($"'/create/{entity.Name}'", () => {
+                    AppendLine($"var data = root[{entity.Name.CapLower()}];");
+                    AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
+                    AppendLine($"callback({entity.Name.CapLower()}, null);");
                 });
-                sb.AppendLine("\t\t}");
+                TabOut();
+                AppendLine("}");
 
                 var idName = $"{entity.Name.CapLower()}ID";
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic void Delete{entity.Name}(ulong {idName}, Action<bool, string> callback)");
-                sb.AppendLine("\t\t{");
-                DoAuthCheck(sb);
-                DoWebRequest(sb, $"'/delete/{entity.Name}/' + {idName}", () => {
-                    sb.AppendLine($"\t\t\t\t\tvar result = root.GetBool({entity.Name.CapLower()});");
-                    sb.AppendLine($"\t\t\t\t\tcallback(result, null);");
+                AppendLine("");
+                AppendLine($"public void Delete{entity.Name}(UInt64 {idName}, Action<bool, string> callback)");
+                AppendLine("{");
+                TabIn();
+                DoClientAuthCheck();
+                DoWebRequest($"'/delete/{entity.Name}/' + {idName}", () => {
+                    AppendLine($"var result = root.GetBool({entity.Name.CapLower()});");
+                    AppendLine($"callback(result, null);");
                 });
-                sb.AppendLine("\t\t}");
+                TabOut();
+                AppendLine("}");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic void Count{entity.Name.Pluralize()}(Action<int, string> callback)");
-                sb.AppendLine("\t\t{");
-                DoAuthCheck(sb);
-                DoWebRequest(sb, $"'/count/{entity.Name}'", () => {
-                    sb.AppendLine($"\t\t\t\t\tvar count = root.GetInt32({entity.Name.CapLower()});");
-                    sb.AppendLine($"\t\t\t\t\tcallback(count, null);");
+                AppendLine("");
+                AppendLine($"public void Count{entity.Name.Pluralize()}(Action<int, string> callback)");
+                AppendLine("{");
+                TabIn();
+                DoClientAuthCheck();
+                DoWebRequest($"'/count/{entity.Name}'", () => {
+                    AppendLine($"var count = root.GetInt32({entity.Name.CapLower()});");
+                    AppendLine($"callback(count, null);");
                 });
-                sb.AppendLine("\t\t}");
+                TabOut();
+                AppendLine("}");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\tpublic void List{entity.Name.Pluralize()}(int page, int count, Action<{entity.Name}[], string> callback)");
-                sb.AppendLine("\t\t{");
+                AppendLine("");
+                AppendLine($"public void List{entity.Name.Pluralize()}(int page, int count, Action<{entity.Name}[], string> callback)");
+                AppendLine("{");
+                TabIn();
+
                 var plural = entity.Name.CapLower().Pluralize();
-                DoAuthCheck(sb);
-                DoWebRequest(sb, $"'/list/{entity.Name}/'+ page + '/'+ count" , () => {
-                    sb.AppendLine($"\t\t\t\t\tvar data = root[{entity.Name.CapLower()}];");
-                    sb.AppendLine($"\t\t\t\t\tvar {plural} = new {entity.Name}[data.ChildCount];");
-                    sb.AppendLine("\t\t\t\t\tfor (int i=0; i<data.ChildCount; i++) {");
-                    sb.AppendLine("\t\t\t\t\t\tvar child = data.GetNodeByIndex(i);");
-                    sb.AppendLine($"\t\t\t\t\t\t{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
-                    sb.AppendLine("\t\t\t\t\t}");
-                    sb.AppendLine($"\t\t\t\t\tcallback({plural}, null);");
+                DoClientAuthCheck();
+                DoWebRequest($"'/list/{entity.Name}/'+ page + '/'+ count" , () => {
+                    AppendLine($"var data = root[{entity.Name.CapLower()}];");
+                    AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                    AppendLine("for (int i=0; i<data.ChildCount; i++) {");
+                    AppendLine("var child = data.GetNodeByIndex(i);");
+                    AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                    AppendLine("}");
+                    AppendLine($"callback({plural}, null);");
                 });
-                sb.AppendLine("\t\t}");
+                TabOut();
+                AppendLine("}");
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -478,128 +601,258 @@ namespace LunarModel
                     {
                         var fieldName = $"{entity.Name.CapLower()}ID";
 
-                        sb.AppendLine("");
+                        AppendLine("");
                         var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
-                        sb.AppendLine("");
-                        sb.AppendLine($"\t\tpublic {reference.Name}[] {methodName}(ulong {fieldName}, Action<{reference.Name}[], string> callback)");
-                        sb.AppendLine("\t\t{");
-                        DoAuthCheck(sb);
-                        DoWebRequest(sb, $"'/get/{entity.Name}/{reference.Name}'", () => {
-                            sb.AppendLine($"\t\t\t\t\tvar data = root[{entity.Name.CapLower().Pluralize()}];");
-                            sb.AppendLine($"\t\t\t\t\tvar {plural} = new {entity.Name}[data.ChildCount];");
-                            sb.AppendLine("\t\t\t\t\tfor (int i=0; i<data.ChildCount; i++) {");
-                            sb.AppendLine("\t\t\t\t\t\tvar child = data.GetNodeByIndex(i);");
-                            sb.AppendLine($"\t\t\t\t\t\t{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
-                            sb.AppendLine("\t\t\t\t\t}");
-                            sb.AppendLine($"\t\t\t\t\tcallback({plural}, null);");
+                        AppendLine("");
+                        AppendLine($"public {reference.Name}[] {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
+                        AppendLine("{");
+                        TabIn();
+
+                        DoClientAuthCheck();
+                        DoWebRequest($"'/get/{entity.Name}/{reference.Name}'", () => {
+                            AppendLine($"var data = root[{entity.Name.CapLower().Pluralize()}];");
+                            AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                            AppendLine("for (int i=0; i<data.ChildCount; i++) {");
+                            TabIn();
+                            AppendLine("var child = data.GetNodeByIndex(i);");
+                            AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                            TabOut();
+                            AppendLine("}");
+                            AppendLine($"callback({plural}, null);");
                         });
-                        sb.AppendLine("\t\t}");
+
+                        TabOut();
+                        AppendLine("}");
                     }
                 }
             }
 
-            sb.AppendLine("\t}");
+            AppendLine("}");
+            TabOut();
 
-            sb.AppendLine("}");
+            AppendLine("}");
 
-            File.WriteAllText($"Client.cs", sb.ToString());
-
+            EndDoc("Client.cs");
         }
 
-        private void CheckPermissions(StringBuilder sb, string varName, string permission)
+        private void CheckPermissions(string varName, string idName, string permission)
         {
-            sb.AppendLine($"\t\t\t\tvar permissions = GetPermissions(user, id, \"{varName}\");");
-            sb.AppendLine($"\t\t\t\tif (!permissions.HasFlag(Permissions.{permission}))");
-            sb.AppendLine("\t\t\t\t{");
-            sb.AppendLine($"\t\t\t\t\treturn Error(\"Cannot {permission.ToLower()} {varName}, permission denied\");");
-            sb.AppendLine("\t\t\t\t}");
+            AppendLine($"var permissions = GetPermissions(authUser, {idName}, \"{varName}\");");
+            AppendLine($"if (!permissions.HasFlag(Permissions.{permission}))");
+            AppendLine("{");
+            TabIn();
+                AppendLine($"return Error(\"Cannot {permission.ToLower()} {varName}, permission denied\");");
+            TabOut();
+            AppendLine("}");
+            AppendLine();
+        }
+
+        private void ReadRequestVariable(string varName, string type)
+        {
+            AppendLine($"{type} {varName};");
+
+            var temp = $"temp_{varName}";
+            AppendLine($"var {temp} = request.GetVariable(\"{varName}\");");
+
+            ParseVariable(temp, varName, type);
+        }
+
+        private void DoServerAuthCheck(StringBuilder sb)
+        {
+            ReadRequestVariable("authID", "UInt64");
+
+            sb.AppendLine("var authUser = Database.FindUser(authID);");
+            sb.AppendLine($"if (authUser == null)");
+            sb.AppendLine("{");
+            TabIn();
+                sb.AppendLine($"\t\t\t\t\treturn Error(\"Authentication token invalid or expired;");
+            TabOut();
+            sb.AppendLine("}");
+            sb.AppendLine();
+        }
+
+        private void ParseVariable(string src, string dest, string type)
+        {
+            if (type == "String")
+            {
+                AppendLine($"{dest} = {src};");
+                return;
+            }
+
+            if (Enums.Any(x => x.Name == type))
+            {
+                AppendLine($"if (!Enum.TryParse<{type}>({src}, out {dest})");
+            }
+            else
+            {
+                AppendLine($"if (!{type}.TryParse({src}, out {dest})");
+            }
+            AppendLine("{");
+            AppendLine($"\treturn Error(\"Invalid argument: {dest}\");");
+            AppendLine("}");
+            AppendLine();
         }
 
         private void GenerateServer()
         {
-            var sb = new StringBuilder();
+            BeginDoc();
 
-            sb.AppendLine($"using System;");
-            sb.AppendLine();
+            AppendLine($"using System;");
+            AppendLine();
 
-            sb.AppendLine($"namespace {Name}.Model");
-            sb.AppendLine("{");
+            AppendLine($"namespace {Name}.Model");
+            AppendLine("{");
+            TabIn();
 
-            sb.AppendLine("");
-            sb.AppendLine("\tpublic enum Permissions");
-            sb.AppendLine("\t{");
-            sb.AppendLine("\t\tNone = 0,");
-            sb.AppendLine("\t\tRead = 1,");
-            sb.AppendLine("\t\tWrite = 2,");
-            sb.AppendLine("\t\tCreate = 4,");
-            sb.AppendLine("\t\tDelete = 8,");
-            sb.AppendLine("\t}");
+            AppendLine();
+            AppendLine("public enum Permissions");
+            AppendLine("{");
+            TabIn();
+                AppendLine("None = 0,");
+                AppendLine("Read = 1,");
+                AppendLine("Write = 2,");
+                AppendLine("Create = 4,");
+                AppendLine("Delete = 8,");
+                AppendLine("List = 16,");
+            TabOut();
+            AppendLine("}");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\tpublic abstract class Base{Name}Server: HTTPServer");
-            sb.AppendLine("\t{");
+            AppendLine();
+            AppendLine($"public abstract class Base{Name}Server: HTTPServer");
+            AppendLine("{");
+            TabIn();
 
-            sb.AppendLine($"\tpublic readonly {Name}Database Database;");
+            AppendLine($"public readonly {Name}Database Database;");
 
-            sb.AppendLine("");
-            sb.AppendLine($"\t\tpublic {Name}Server({Name}Database database, ServerSettings settings, LoggerCallback log = null, SessionStorage sessionStorage = null): base(setings, log, sessionStorage)");
-            sb.AppendLine("\t\t{");
-            sb.AppendLine("\t\t\tthis.Database = database;");
+            AppendLine();
+            AppendLine($"public {Name}Server({Name}Database database, ServerSettings settings, LoggerCallback log = null, SessionStorage sessionStorage = null): base(setings, log, sessionStorage)");
+            AppendLine("{");
+            TabIn();
+
+            AppendLine("this.Database = database;");
 
             foreach (var entity in this.Entities)
             {
+                BeginRegion(entity.Name);
+
                 var varName = entity.Name.CapLower();
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\t\tthis.Post(\"/{varName}/create/\", (request) =>");
-                sb.AppendLine("\t\t\t{");
-                CheckPermissions(sb, varName, "Create");
-                string fields = "";
-                foreach (var entry in entity.Decls)
-                {
-                    if (!string.IsNullOrEmpty(fields))
+                AppendLine();
+                AppendLine($"this.Post(\"/{varName}/create/\", (request) =>");
+                AppendLine("{");
+                TabIn();
+                    CheckPermissions(varName, "0", "Create");
+                    string fields = "";
+                    foreach (var entry in entity.Decls)
                     {
-                        fields = fields + ',';
+                        if (!string.IsNullOrEmpty(fields))
+                        {
+                            fields = fields + ", ";
+                        }
+
+                        var fieldName = entry.Value.Name.CapLower();
+                        fields += fieldName;
+
+                        ReadRequestVariable(fieldName, entry.Value.Type);
                     }
+                    AppendLine($"var {varName} = Database.Create{entity.Name}({fields});");
+                    AppendLine($"if ({varName}  == null)");
+                    AppendLine("{");
+                    AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
+                    AppendLine("}");
+                    AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
+                TabOut();
+                AppendLine("});");
 
-                    var fieldName = entry.Value.Name.CapLower();
-                    fields += fieldName;
-                    sb.AppendLine($"\t\t\t\tvar {fieldName} = request.GetVariable(\"{entry.Value.Name}\");");
-                }
-                sb.AppendLine($"\t\t\t\tvar {varName} = Database.Create{entity.Name}({fields});");
-                sb.AppendLine($"\t\t\t\tif ({varName}  == null)");
-                sb.AppendLine("\t\t\t\t{");
-                sb.AppendLine($"\t\t\t\t\treturn Error(\"{entity.Name} creation failed\");");
-                sb.AppendLine("\t\t\t\t}");
-                sb.AppendLine($"\t\t\t\treturn {serializationClass}.{entity.Name}ToNode({varName});");
-                sb.AppendLine("\t\t\t});");
+                AppendLine();
+                AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
+                AppendLine("{");
+                TabIn();
+                    ReadRequestVariable("id", "int");
+                    CheckPermissions(varName, "id", "Delete");
+                    AppendLine($"var result = Database.Delete{entity.Name}(id);");
+                    AppendLine($"return result.ToString();");
+                TabOut();
+                AppendLine("});");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\t\tthis.Post(\"/{varName}/delete/\", (request) =>");
-                sb.AppendLine("\t\t\t{");
-                sb.AppendLine($"\t\t\t\tvar id = request.GetVariable(\"id\");");
-                CheckPermissions(sb, varName, "Delete");
-                sb.AppendLine($"\t\t\t\tvar result = Database.Delete{entity.Name}(id);");
-                sb.AppendLine($"\t\t\t\treturn result.ToString();");
-                sb.AppendLine("\t\t\t});");
+                AppendLine();
+                AppendLine($"this.Get(\"/{varName}/count/\", (request) =>");
+                AppendLine("{");
+                TabIn();
+                    CheckPermissions(varName, "0", "List");
+                    AppendLine($"var result = Database.Count{entity.Name.Pluralize()}(id);");
+                    AppendLine($"return result.ToString();");
+                TabOut();
+                AppendLine("});");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\t\tthis.Get(\"/{varName}/count/\", (request) =>");
-                sb.AppendLine("\t\t\t{");
-                CheckPermissions(sb, varName, "Read");
-                sb.AppendLine($"\t\t\t\tvar result = Database.Count{entity.Name.Pluralize()}(id);");
-                sb.AppendLine($"\t\t\t\treturn result.ToString();");
-                sb.AppendLine("\t\t\t});");
+                AppendLine();
+                AppendLine($"this.Get(\"/{varName}/list/" + "{page}/{count}" + "\", (request) =>");
+                AppendLine("{");
+                TabIn();
+                    CheckPermissions(varName, "0", "List");
+                    ReadRequestVariable("page", "int");
+                    ReadRequestVariable("count", "int");
+                    AppendLine($"var result = Database.List{entity.Name.Pluralize()}(page, count);");
+                    AppendLine($"return result.ToDataNode();");
+                TabOut();
+                AppendLine("});");
 
-                sb.AppendLine("");
-                sb.AppendLine($"\t\t\tthis.Get(\"/{varName}/list/" + "{page}/{count}" + "\", (request) =>");
-                sb.AppendLine("\t\t\t{");
-                CheckPermissions(sb, varName, "Read");
-                sb.AppendLine($"\t\t\t\tvar page = request.GetVariable(\"page\");");
-                sb.AppendLine($"\t\t\t\tvar count  = request.GetVariable(\"count\");");
-                sb.AppendLine($"\t\t\t\tvar result = Database.List{entity.Name.Pluralize()}(page, count);");
-                sb.AppendLine($"\t\t\t\treturn result.ToDataNode();");
-                sb.AppendLine("\t\t\t});");
+                AppendLine();
+                AppendLine($"this.Post(\"/{varName}/edit/\", (request) =>");
+                AppendLine("{");
+                TabIn();
+
+                    ReadRequestVariable("id", "int");
+                    ReadRequestVariable("fields", "string");
+                    ReadRequestVariable("values", "string");
+                    CheckPermissions(varName, "id", "Write");
+                    AppendLine($"var {varName} = Database.Find{entity.Name}(id);");
+
+                    AppendLine($"var fieldEntries = fields.Split('|');");
+                    AppendLine($"var valuesEntries = values.Split('|');");
+                    AppendLine($"if (fieldEntries.Length != valuesEntries.Length)");
+                    AppendLine("{");
+                    AppendLine("\treturn Error(\"Field and values dont match\");");
+                    AppendLine("}");
+                    AppendLine();
+
+                    AppendLine($"for (int i=0; i<fieldEntries.Length; i++)");
+                    AppendLine("{");
+                    TabIn();
+
+                        AppendLine("var field = fieldEntries[i];");
+                        AppendLine("var value = valueEntries[i];");
+                        AppendLine($"switch (field)");
+                        AppendLine("{");
+                        TabIn();
+                        foreach (var field in entity.Fields)
+                        {
+                            if (!field.Flags.HasFlag(FieldFlags.Editable))
+                            {
+                                continue;
+                            }
+
+                            var entry = entity.Decls[field];
+
+                            AppendLine($"case \"{entry.Name}\":");
+                            TabIn();
+                                ParseVariable("value", $"{varName}.{entry.Name}", entry.Type);
+                                AppendLine($"break;");
+                                AppendLine();
+                            TabOut();
+                        }
+
+                        AppendLine("default:");
+                        AppendLine("\treturn Error(\"Invalid field: \" + field);");
+                        TabOut();
+                        AppendLine("}");
+                    
+                    TabOut();
+                    AppendLine("}");
+
+                    AppendLine($"return \"true\";");
+                TabOut();
+                AppendLine("});");
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -608,37 +861,46 @@ namespace LunarModel
                     {
                         var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
 
-                        sb.AppendLine("");
-                        sb.AppendLine($"\t\t\tthis.Get(\"/{varName}/{reference.Name.CapLower().Pluralize()}/" + "{id}" + "\",  (request) =>");
-                        sb.AppendLine("\t\t\t{");
-                        CheckPermissions(sb, varName, "Read");
-                        sb.AppendLine($"\t\t\t\tvar id = request.GetVariable(\"id\");");
-                        sb.AppendLine($"\t\t\t\tvar result = Database.{methodName}(id);");
-                        sb.AppendLine($"\t\t\t\treturn result.ToDataNode();");
-                        sb.AppendLine("\t\t\t});");
+                        AppendLine();
+                        AppendLine($"this.Get(\"/{varName}/{reference.Name.CapLower().Pluralize()}/" + "{id}" + "\",  (request) =>");
+                        AppendLine("{");
+                        TabIn();
+                            ReadRequestVariable("id", "int");
+                            CheckPermissions(varName, "id", "Read");
+                            AppendLine($"var result = Database.{methodName}(id);");
+                            AppendLine($"return result.ToDataNode();");
+                        TabOut();
+                        AppendLine("});");
                     }
                 }
+
+                EndRegion();
+                AppendLine();
             }
 
-            sb.AppendLine("\t\t}");
+            TabOut();
+            AppendLine("}");
 
-            sb.AppendLine("");
-            sb.AppendLine("\t\tpublic DataNode Error(string msg)");
-            sb.AppendLine("\t\t{");
-            sb.AppendLine("\t\t\tvar result = DataNode.CreateObject(\"result\");");
-            sb.AppendLine("\t\t\tresult.AddField(\"error\", msg);");
-            sb.AppendLine("\t\t\treturn result;");
-            sb.AppendLine("\t\t}");
+            AppendLine();
+            AppendLine("public DataNode Error(string msg)");
+            AppendLine("{");
+            TabIn();
+                AppendLine("var result = DataNode.CreateObject(\"result\");");
+                AppendLine("result.AddField(\"error\", msg);");
+                AppendLine("return result;");
+            TabOut();
+            AppendLine("}");
 
-            sb.AppendLine("");
-            sb.AppendLine("\t\tpublic abstract User Authenticate(string creds);");
-            sb.AppendLine("\t\tpublic abstract Permissions GetPermissions(User user, ulong targetID, string scheme);");
+            AppendLine();
+            AppendLine("public abstract User Authenticate(string creds);");
+            AppendLine("public abstract Permissions GetPermissions(User user, UInt64 targetID, string scheme);");
 
-            sb.AppendLine("\t}");
-            sb.AppendLine("}");
+            AppendLine("}");
+            TabOut();
 
-            File.WriteAllText($"Server.cs", sb.ToString());
+            AppendLine("}");
 
+            EndDoc("Server.cs");
         }
 
     }

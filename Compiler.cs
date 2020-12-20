@@ -314,7 +314,14 @@ namespace LunarModel
                                 var fieldType = ExpectType();
                                 ExpectToken(";");
 
-                                fields.Add(new EntityField(fieldName, fieldType));
+                                var flags = FieldFlags.None;
+
+                                if (!(fieldType is EntityDeclaration))
+                                {
+                                    flags |= FieldFlags.Editable;
+                                }
+
+                                fields.Add(new EntityField(fieldName, fieldType, flags));
                             } while (true);
 
                             CreateEntity(structName, parentName, fields);
@@ -388,7 +395,7 @@ namespace LunarModel
 
             foreach (var entry in _entities.Values)
             {
-                model.Entities.Add(new Entity(entry.Name, entry.Parent != null ? model.Entities.Where(x => x.Name == entry.Parent).FirstOrDefault() : null, entry.fields.Select(x => new Field(x.name, x.type.Name))));
+                model.Entities.Add(new Entity(entry.Name, entry.Parent != null ? model.Entities.Where(x => x.Name == entry.Parent).FirstOrDefault() : null, entry.fields.Select(x => new Field(x.name, x.type.Name, x.flags))));
             }
 
             return model;

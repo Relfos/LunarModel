@@ -60,11 +60,13 @@ namespace LunarModel
     {
         public readonly string name;
         public readonly TypeDeclaration type;
+        public readonly FieldFlags flags;
 
-        public EntityField(string name, TypeDeclaration type)
+        public EntityField(string name, TypeDeclaration type, FieldFlags flags)
         {
             this.name = name;
             this.type = type;
+            this.flags = flags;
         }
     }
 
