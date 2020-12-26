@@ -53,15 +53,29 @@ namespace LunarModel.Generators
             sb.AppendLine($"\t\t\treturn {_mapNames[entity]}.Count;");
         }
 
-        public override void Create(StringBuilder sb, Entity entity)
+        private void InitDecls(StringBuilder sb, Entity entity, string varName, bool skipInternals)
         {
-            var varName = $"{entity.Name.CapLower()}";
-
-            sb.AppendLine($"\t\t\tvar {varName} = new {entity.Name}();");
-            foreach (var decl in entity.Decls)
+            if (entity.Parent != null)
             {
-                sb.AppendLine($"\t\t\t{varName}.{decl.Value.Name} = {decl.Value.Name.CapLower()};");
+                InitDecls(sb, entity.Parent, varName, true);
             }
+
+            foreach (var field in entity.Fields)
+            {
+                if (skipInternals && field.Flags.HasFlag(FieldFlags.Internal))
+                {
+                    continue;
+                }
+
+                var decl = entity.Decls[field];
+                sb.AppendLine($"\t\t\t{varName}.{decl.Name} = {decl.Name.CapLower()};");
+            }
+        }
+
+        public override void Create(StringBuilder sb, Entity entity, string varName)
+        {
+            sb.AppendLine($"\t\t\t{varName}.ID = (UInt64)({_mapNames[entity]}.Count + 1);");
+            InitDecls(sb, entity, varName, false);
             sb.AppendLine($"\t\t\t{_mapNames[entity]}[{varName}.ID] = {varName};");
             sb.AppendLine($"\t\t\treturn {varName};");
         }
