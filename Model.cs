@@ -72,11 +72,12 @@ namespace LunarModel
 
     public abstract class Generator
     {
-        public abstract void Namespaces(StringBuilder sb);        
+        public abstract void Namespaces(StringBuilder sb);
         public abstract void Declarations(StringBuilder sb, IEnumerable<Entity> entities);
         public abstract void Create(StringBuilder sb, Entity entity);
         public abstract void Delete(StringBuilder sb, Entity entity);
-        public abstract void Find(StringBuilder sb, Entity entity);
+        public abstract void Find(StringBuilder sb, Entity entity);        
+        public abstract void Get(StringBuilder sb, Entity entity);
         public abstract void List(StringBuilder sb, Entity entity);
         public abstract void Count(StringBuilder sb, Entity entity);
         public abstract void Aggregate(StringBuilder sb, Entity source, Entity target, string fieldName);
@@ -91,6 +92,7 @@ namespace LunarModel
         public List<Entity> Entities = new List<Entity>();
 
         private string serializationClass;
+        private string clientClass;
 
         StringBuilder _sb = new StringBuilder();
         int _tabs = 0;
@@ -124,6 +126,8 @@ namespace LunarModel
         public void Generate()
         {
             this.serializationClass = $"{this.Name}Serialization";
+            this.clientClass = "Client";
+
             GenerateClasses();
             GenerateSerialization();
             GenerateDatabase();
@@ -175,12 +179,15 @@ namespace LunarModel
 
         private void AppendLine(string text = "", bool addTabs = true)
         {
-            Append(text+"\n", addTabs);
+            Append(text + "\n", addTabs);
         }
 
         private void GenerateClasses()
         {
             BeginDoc();
+
+            AppendLine("using System;");
+            AppendLine();
 
             AppendLine($"namespace {Name}.Model");
             AppendLine("{");
@@ -194,7 +201,7 @@ namespace LunarModel
                 TabIn();
                 foreach (var entry in enumm.Values)
                 {
-                    AppendLine("\t\t"+entry + ", ");
+                    AppendLine("\t\t" + entry + ", ");
                 }
                 TabOut();
                 AppendLine("\t}");
@@ -216,8 +223,8 @@ namespace LunarModel
             {
                 TabIn();
 
-                AppendLine();                
-                AppendLine($"public class {entity.Name} : Entity");
+                AppendLine();
+                AppendLine($"public class {entity.Name} : " + (entity.Parent != null ? entity.Parent.Name : "Entity"));
                 AppendLine("{");
 
                 if (IsAbstract(entity))
@@ -249,7 +256,7 @@ namespace LunarModel
                     var decl = new FieldDecl(name, type);
                     entity.Decls[field] = decl;
 
-                    AppendLine($"\tpublic {type} {name} "+ " { get; internal set;}");
+                    AppendLine($"\tpublic {type} {name} " + " { get; internal set;}");
                 }
 
                 AppendLine("}");
@@ -264,6 +271,9 @@ namespace LunarModel
         private void GenerateSerialization()
         {
             BeginDoc();
+
+            AppendLine("using LunarLabs.Parser;");
+            AppendLine();
 
             AppendLine($"namespace {Name}.Model");
             AppendLine("{");
@@ -281,23 +291,23 @@ namespace LunarModel
                 AppendLine("{");
                 var varName = entity.Name.CapLower();
                 TabIn();
-                    AppendLine($"var {varName} = new {entity.Name}();");
-                    foreach (var entry in entity.Decls)
-                    {
-                        string getStr;
-                    
-                        if (Enums.Any(x => x.Name == entry.Value.Type))
-                        {
-                            getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
-                        }
-                        else
-                        {
-                            getStr = entry.Value.Type.CapUpper();
-                        }
+                AppendLine($"var {varName} = new {entity.Name}();");
+                foreach (var entry in entity.Decls)
+                {
+                    string getStr;
 
-                        AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
+                    if (Enums.Any(x => x.Name == entry.Value.Type))
+                    {
+                        getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
                     }
-                    AppendLine($"return {varName};");
+                    else
+                    {
+                        getStr = entry.Value.Type.CapUpper();
+                    }
+
+                    AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
+                }
+                AppendLine($"return {varName};");
                 TabOut();
                 AppendLine("}");
 
@@ -306,13 +316,13 @@ namespace LunarModel
                 AppendLine("{");
 
                 TabIn();
-                    AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
-                
-                    foreach (var entry in entity.Decls)
-                    {
-                        AppendLine($"node.AddField(\"{entry.Value.Name}\", {varName}.{entry.Value.Name});");
-                    }
-                    AppendLine($"return node;");
+                AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
+
+                foreach (var entry in entity.Decls)
+                {
+                    AppendLine($"node.AddField(\"{entry.Value.Name}\", {varName}.{entry.Value.Name});");
+                }
+                AppendLine($"return node;");
                 TabOut();
                 AppendLine("}");
 
@@ -330,6 +340,7 @@ namespace LunarModel
         {
             BeginDoc();
 
+            AppendLine("using System;");
             generator.Namespaces(_sb);
 
             AppendLine($"namespace {Name}.Model");
@@ -366,7 +377,7 @@ namespace LunarModel
                 generator.Create(_sb, entity);
                 AppendLine("}");
 
-                var visibility = IsAbstract(entity) ? "private":   "public";
+                var visibility = IsAbstract(entity) ? "private" : "public";
 
                 AppendLine("");
                 AppendLine($"{visibility} bool Delete{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
@@ -387,7 +398,7 @@ namespace LunarModel
                 AppendLine($"public {entity.Name} Find{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
                 AppendLine("{");
                 TabIn();
-                AppendLine("if ({entity.Name.CapLower()}ID == 0)");
+                AppendLine($"if ({entity.Name.CapLower()}ID == 0)");
                 AppendLine("{");
                 AppendLine("\t return null;");
                 AppendLine("}");
@@ -396,17 +407,24 @@ namespace LunarModel
                 AppendLine("}");
 
                 AppendLine();
-                AppendLine($"public {entity.Name}[] Get{entity.Name}Count()");
+                AppendLine($"public int Get{entity.Name}Count()");
                 AppendLine("{");
                 generator.Count(_sb, entity);
                 AppendLine("}");
 
                 AppendLine("");
-                AppendLine($"public {entity.Name}[] Get{entity.Name.Pluralize()}(int page, int count)");
+                AppendLine($"public {entity.Name}[] List{entity.Name.Pluralize()}(int page, int count)");
                 AppendLine("{");
                 AppendLine("\tvar offset = page * count;");
                 generator.List(_sb, entity);
                 AppendLine("}");
+
+                AppendLine("");
+                AppendLine($"public {entity.Name}[] Get{entity.Name.Pluralize()}(UInt64[] IDs)");
+                AppendLine("{");
+                generator.Get(_sb, entity);
+                AppendLine("}");
+
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -436,71 +454,77 @@ namespace LunarModel
             EndDoc("Database.cs");
         }
 
-        private void DoWebRequest(string url, Action callback)
+        private void DoWebRequest(string url, string nullValue, Action callback, bool requireAuthCheck = true)
         {
-            AppendLine("StartCoroutine(");
-            TabIn();
-                AppendLine($"WebClient.RESTRequest(URL + {url.Replace('\'', '"')}, 0, (error, desc) =>");
+            if (requireAuthCheck)
+            {
+                AppendLine("if (string.IsNullOrEmpty(_authToken))");
                 AppendLine("{");
                 TabIn();
-                    AppendLine("callback(null, desc);");
-                    AppendLine("}, (root) =>");
-                    AppendLine("{");
-                    callback();
+                AppendLine("callback(" + nullValue + ", \"Authentication required.\");");
                 TabOut();
-                AppendLine("});");
-            TabOut();
-        }
+                AppendLine("}");
+                AppendLine();
+            }
 
-        private void DoClientAuthCheck()
-        {
-            AppendLine("if (string.IsNullOrEmpty(_authToken))");
+            AppendLine("StartCoroutine(");
+            TabIn();
+            AppendLine($"WebClient.RESTRequest(URL + {url.Replace('\'', '"')}, 0, (error, desc) =>");
             AppendLine("{");
             TabIn();
-                AppendLine("callback(null, \"Authentication required.\");");
+            AppendLine("callback(" + nullValue + ", desc);");
+            AppendLine("}, (root) =>");
+            AppendLine("{");
+            callback();
             TabOut();
-            AppendLine("}");
-            AppendLine();
+            AppendLine("}));");
+            TabOut();
         }
 
         private void GenerateClient()
         {
             BeginDoc();
 
-            generator.Namespaces(_sb);
+            AppendLine($"using System;");
+            AppendLine($"using System.Collections.Generic;");
+            AppendLine($"using UnityEngine;");
+            AppendLine();
 
             AppendLine($"namespace {Name}.Model");
             AppendLine("{");
 
             AppendLine();
             TabIn();
-            AppendLine($"public class {Name}Client");
+            AppendLine($"public class {clientClass}: MonoBehaviour");
             AppendLine("{");
 
             AppendLine();
             TabIn();
 
-            AppendLine($"public readonly string URL;");
-            AppendLine("public User { get; private set;}");
-            AppendLine($"private string _authToken = null;");
+            AppendLine($"public string URL = \"localhost\";");
+            AppendLine("public User User { get; private set;}");
+            AppendLine();
+            AppendLine("private string _authToken = null;");
 
             AppendLine();
-            AppendLine($"public {Name}Client(string URL)");
+            AppendLine("public static " + clientClass + " Instance { get; private set; }");
+
+            AppendLine();
+            AppendLine("public void Awake()");
             AppendLine("{");
-            AppendLine("\tthis.URL = URL;");
+            AppendLine("\tInstance = this;");
             AppendLine("}");
 
             AppendLine();
             AppendLine($"public void LogIn(string creds, Action<User, string> callback)");
             AppendLine("{");
             TabIn();
-            DoWebRequest($"'/login/' + creds", () => {
-                AppendLine("this._authToken =root.GetString(\"token\");");
+            DoWebRequest($"'/login/' + creds", "null", () => {
+                AppendLine("this._authToken = root.GetString(\"token\");");
                 AppendLine("var node = root.GetNode(\"user\");");
                 AppendLine($"this.User = {serializationClass}.UserFromNode(node);");
                 AppendLine($"callback(this.User, null);");
-            });
-
+            }, false);
             TabOut();
             AppendLine("}");
 
@@ -541,9 +565,8 @@ namespace LunarModel
                 AppendLine(")", false);
                 AppendLine("{");
                 TabIn();
-                DoClientAuthCheck();
-                DoWebRequest($"'/create/{entity.Name}'", () => {
-                    AppendLine($"var data = root[{entity.Name.CapLower()}];");
+                DoWebRequest($"'/create/{entity.Name}'", "null", () => {
+                    AppendLine($"var data = root[\"{entity.Name.CapLower()}\"];");
                     AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
                     AppendLine($"callback({entity.Name.CapLower()}, null);");
                 });
@@ -555,9 +578,8 @@ namespace LunarModel
                 AppendLine($"public void Delete{entity.Name}(UInt64 {idName}, Action<bool, string> callback)");
                 AppendLine("{");
                 TabIn();
-                DoClientAuthCheck();
-                DoWebRequest($"'/delete/{entity.Name}/' + {idName}", () => {
-                    AppendLine($"var result = root.GetBool({entity.Name.CapLower()});");
+                DoWebRequest($"'/delete/{entity.Name}/' + {idName}", "false", () => {
+                    AppendLine($"var result = root.GetBool(\"{entity.Name.CapLower()}\");");
                     AppendLine($"callback(result, null);");
                 });
                 TabOut();
@@ -567,9 +589,8 @@ namespace LunarModel
                 AppendLine($"public void Count{entity.Name.Pluralize()}(Action<int, string> callback)");
                 AppendLine("{");
                 TabIn();
-                DoClientAuthCheck();
-                DoWebRequest($"'/count/{entity.Name}'", () => {
-                    AppendLine($"var count = root.GetInt32({entity.Name.CapLower()});");
+                DoWebRequest($"'/count/{entity.Name}'", "-1", () => {
+                    AppendLine($"var count = root.GetInt32(\"{entity.Name.CapLower()}\");");
                     AppendLine($"callback(count, null);");
                 });
                 TabOut();
@@ -581,9 +602,25 @@ namespace LunarModel
                 TabIn();
 
                 var plural = entity.Name.CapLower().Pluralize();
-                DoClientAuthCheck();
-                DoWebRequest($"'/list/{entity.Name}/'+ page + '/'+ count" , () => {
-                    AppendLine($"var data = root[{entity.Name.CapLower()}];");
+                DoWebRequest($"'/list/{entity.Name}/'+ page + '/'+ count", "null", () => {
+                    AppendLine($"var data = root[\"{plural}\"];");
+                    AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                    AppendLine("for (int i=0; i<data.ChildCount; i++) {");
+                    AppendLine("var child = data.GetNodeByIndex(i);");
+                    AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                    AppendLine("}");
+                    AppendLine($"callback({plural}, null);");
+                });
+                TabOut();
+                AppendLine("}");
+
+                AppendLine("");
+                AppendLine($"public void Get{entity.Name.Pluralize()}(IEnumerable<UInt64> IDs, Action<{entity.Name}[], string> callback)");
+                AppendLine("{");
+                TabIn();
+
+                DoWebRequest($"'/post/{entity.Name}'", "null", () => {
+                    AppendLine($"var data = root[\"{plural}\"];");
                     AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
                     AppendLine("for (int i=0; i<data.ChildCount; i++) {");
                     AppendLine("var child = data.GetNodeByIndex(i);");
@@ -604,21 +641,21 @@ namespace LunarModel
                         AppendLine("");
                         var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
                         AppendLine("");
-                        AppendLine($"public {reference.Name}[] {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
+                        AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
                         AppendLine("{");
                         TabIn();
 
-                        DoClientAuthCheck();
-                        DoWebRequest($"'/get/{entity.Name}/{reference.Name}'", () => {
-                            AppendLine($"var data = root[{entity.Name.CapLower().Pluralize()}];");
-                            AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                        var targetName = reference.Name.CapLower().Pluralize();
+                        DoWebRequest($"'/get/{entity.Name}/{targetName}'", "null", () => {
+                            AppendLine($"var data = root[\"{targetName}\"];");
+                            AppendLine($"var {targetName} = new {reference.Name}[data.ChildCount];");
                             AppendLine("for (int i=0; i<data.ChildCount; i++) {");
                             TabIn();
                             AppendLine("var child = data.GetNodeByIndex(i);");
-                            AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                            AppendLine($"{targetName}[i] = {serializationClass}.{reference.Name}FromNode(child);");
                             TabOut();
                             AppendLine("}");
-                            AppendLine($"callback({plural}, null);");
+                            AppendLine($"callback({targetName}, null);");
                         });
 
                         TabOut();
@@ -641,7 +678,7 @@ namespace LunarModel
             AppendLine($"if (!permissions.HasFlag(Permissions.{permission}))");
             AppendLine("{");
             TabIn();
-                AppendLine($"return Error(\"Cannot {permission.ToLower()} {varName}, permission denied\");");
+            AppendLine($"return Error(\"Cannot {permission.ToLower()} {varName}, permission denied\");");
             TabOut();
             AppendLine("}");
             AppendLine();
@@ -665,7 +702,7 @@ namespace LunarModel
             sb.AppendLine($"if (authUser == null)");
             sb.AppendLine("{");
             TabIn();
-                sb.AppendLine($"\t\t\t\t\treturn Error(\"Authentication token invalid or expired;");
+            sb.AppendLine($"\t\t\t\t\treturn Error(\"Authentication token invalid or expired;");
             TabOut();
             sb.AppendLine("}");
             sb.AppendLine();
@@ -708,12 +745,12 @@ namespace LunarModel
             AppendLine("public enum Permissions");
             AppendLine("{");
             TabIn();
-                AppendLine("None = 0,");
-                AppendLine("Read = 1,");
-                AppendLine("Write = 2,");
-                AppendLine("Create = 4,");
-                AppendLine("Delete = 8,");
-                AppendLine("List = 16,");
+            AppendLine("None = 0,");
+            AppendLine("Read = 1,");
+            AppendLine("Write = 2,");
+            AppendLine("Create = 4,");
+            AppendLine("Delete = 8,");
+            AppendLine("List = 16,");
             TabOut();
             AppendLine("}");
 
@@ -741,26 +778,26 @@ namespace LunarModel
                 AppendLine($"this.Post(\"/{varName}/create/\", (request) =>");
                 AppendLine("{");
                 TabIn();
-                    CheckPermissions(varName, "0", "Create");
-                    string fields = "";
-                    foreach (var entry in entity.Decls)
+                CheckPermissions(varName, "0", "Create");
+                string fields = "";
+                foreach (var entry in entity.Decls)
+                {
+                    if (!string.IsNullOrEmpty(fields))
                     {
-                        if (!string.IsNullOrEmpty(fields))
-                        {
-                            fields = fields + ", ";
-                        }
-
-                        var fieldName = entry.Value.Name.CapLower();
-                        fields += fieldName;
-
-                        ReadRequestVariable(fieldName, entry.Value.Type);
+                        fields = fields + ", ";
                     }
-                    AppendLine($"var {varName} = Database.Create{entity.Name}({fields});");
-                    AppendLine($"if ({varName}  == null)");
-                    AppendLine("{");
-                    AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
-                    AppendLine("}");
-                    AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
+
+                    var fieldName = entry.Value.Name.CapLower();
+                    fields += fieldName;
+
+                    ReadRequestVariable(fieldName, entry.Value.Type);
+                }
+                AppendLine($"var {varName} = Database.Create{entity.Name}({fields});");
+                AppendLine($"if ({varName}  == null)");
+                AppendLine("{");
+                AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
+                AppendLine("}");
+                AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
                 TabOut();
                 AppendLine("});");
 
@@ -768,10 +805,10 @@ namespace LunarModel
                 AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
                 AppendLine("{");
                 TabIn();
-                    ReadRequestVariable("id", "int");
-                    CheckPermissions(varName, "id", "Delete");
-                    AppendLine($"var result = Database.Delete{entity.Name}(id);");
-                    AppendLine($"return result.ToString();");
+                ReadRequestVariable("id", "int");
+                CheckPermissions(varName, "id", "Delete");
+                AppendLine($"var result = Database.Delete{entity.Name}(id);");
+                AppendLine($"return result.ToString();");
                 TabOut();
                 AppendLine("});");
 
@@ -779,9 +816,9 @@ namespace LunarModel
                 AppendLine($"this.Get(\"/{varName}/count/\", (request) =>");
                 AppendLine("{");
                 TabIn();
-                    CheckPermissions(varName, "0", "List");
-                    AppendLine($"var result = Database.Count{entity.Name.Pluralize()}(id);");
-                    AppendLine($"return result.ToString();");
+                CheckPermissions(varName, "0", "List");
+                AppendLine($"var result = Database.Count{entity.Name.Pluralize()}(id);");
+                AppendLine($"return result.ToString();");
                 TabOut();
                 AppendLine("});");
 
@@ -789,11 +826,11 @@ namespace LunarModel
                 AppendLine($"this.Get(\"/{varName}/list/" + "{page}/{count}" + "\", (request) =>");
                 AppendLine("{");
                 TabIn();
-                    CheckPermissions(varName, "0", "List");
-                    ReadRequestVariable("page", "int");
-                    ReadRequestVariable("count", "int");
-                    AppendLine($"var result = Database.List{entity.Name.Pluralize()}(page, count);");
-                    AppendLine($"return result.ToDataNode();");
+                CheckPermissions(varName, "0", "List");
+                ReadRequestVariable("page", "int");
+                ReadRequestVariable("count", "int");
+                AppendLine($"var result = Database.List{entity.Name.Pluralize()}(page, count);");
+                AppendLine($"return result.ToDataNode();");
                 TabOut();
                 AppendLine("});");
 
@@ -802,55 +839,55 @@ namespace LunarModel
                 AppendLine("{");
                 TabIn();
 
-                    ReadRequestVariable("id", "int");
-                    ReadRequestVariable("fields", "string");
-                    ReadRequestVariable("values", "string");
-                    CheckPermissions(varName, "id", "Write");
-                    AppendLine($"var {varName} = Database.Find{entity.Name}(id);");
+                ReadRequestVariable("id", "int");
+                ReadRequestVariable("fields", "string");
+                ReadRequestVariable("values", "string");
+                CheckPermissions(varName, "id", "Write");
+                AppendLine($"var {varName} = Database.Find{entity.Name}(id);");
 
-                    AppendLine($"var fieldEntries = fields.Split('|');");
-                    AppendLine($"var valuesEntries = values.Split('|');");
-                    AppendLine($"if (fieldEntries.Length != valuesEntries.Length)");
-                    AppendLine("{");
-                    AppendLine("\treturn Error(\"Field and values dont match\");");
-                    AppendLine("}");
-                    AppendLine();
+                AppendLine($"var fieldEntries = fields.Split('|');");
+                AppendLine($"var valuesEntries = values.Split('|');");
+                AppendLine($"if (fieldEntries.Length != valuesEntries.Length)");
+                AppendLine("{");
+                AppendLine("\treturn Error(\"Field and values dont match\");");
+                AppendLine("}");
+                AppendLine();
 
-                    AppendLine($"for (int i=0; i<fieldEntries.Length; i++)");
-                    AppendLine("{");
+                AppendLine($"for (int i=0; i<fieldEntries.Length; i++)");
+                AppendLine("{");
+                TabIn();
+
+                AppendLine("var field = fieldEntries[i];");
+                AppendLine("var value = valueEntries[i];");
+                AppendLine($"switch (field)");
+                AppendLine("{");
+                TabIn();
+                foreach (var field in entity.Fields)
+                {
+                    if (!field.Flags.HasFlag(FieldFlags.Editable))
+                    {
+                        continue;
+                    }
+
+                    var entry = entity.Decls[field];
+
+                    AppendLine($"case \"{entry.Name}\":");
                     TabIn();
-
-                        AppendLine("var field = fieldEntries[i];");
-                        AppendLine("var value = valueEntries[i];");
-                        AppendLine($"switch (field)");
-                        AppendLine("{");
-                        TabIn();
-                        foreach (var field in entity.Fields)
-                        {
-                            if (!field.Flags.HasFlag(FieldFlags.Editable))
-                            {
-                                continue;
-                            }
-
-                            var entry = entity.Decls[field];
-
-                            AppendLine($"case \"{entry.Name}\":");
-                            TabIn();
-                                ParseVariable("value", $"{varName}.{entry.Name}", entry.Type);
-                                AppendLine($"break;");
-                                AppendLine();
-                            TabOut();
-                        }
-
-                        AppendLine("default:");
-                        AppendLine("\treturn Error(\"Invalid field: \" + field);");
-                        TabOut();
-                        AppendLine("}");
-                    
+                    ParseVariable("value", $"{varName}.{entry.Name}", entry.Type);
+                    AppendLine($"break;");
+                    AppendLine();
                     TabOut();
-                    AppendLine("}");
+                }
 
-                    AppendLine($"return \"true\";");
+                AppendLine("default:");
+                AppendLine("\treturn Error(\"Invalid field: \" + field);");
+                TabOut();
+                AppendLine("}");
+
+                TabOut();
+                AppendLine("}");
+
+                AppendLine($"return \"true\";");
                 TabOut();
                 AppendLine("});");
 
@@ -865,10 +902,10 @@ namespace LunarModel
                         AppendLine($"this.Get(\"/{varName}/{reference.Name.CapLower().Pluralize()}/" + "{id}" + "\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                            ReadRequestVariable("id", "int");
-                            CheckPermissions(varName, "id", "Read");
-                            AppendLine($"var result = Database.{methodName}(id);");
-                            AppendLine($"return result.ToDataNode();");
+                        ReadRequestVariable("id", "int");
+                        CheckPermissions(varName, "id", "Read");
+                        AppendLine($"var result = Database.{methodName}(id);");
+                        AppendLine($"return result.ToDataNode();");
                         TabOut();
                         AppendLine("});");
                     }
@@ -885,9 +922,9 @@ namespace LunarModel
             AppendLine("public DataNode Error(string msg)");
             AppendLine("{");
             TabIn();
-                AppendLine("var result = DataNode.CreateObject(\"result\");");
-                AppendLine("result.AddField(\"error\", msg);");
-                AppendLine("return result;");
+            AppendLine("var result = DataNode.CreateObject(\"result\");");
+            AppendLine("result.AddField(\"error\", msg);");
+            AppendLine("return result;");
             TabOut();
             AppendLine("}");
 

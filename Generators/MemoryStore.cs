@@ -11,6 +11,7 @@ namespace LunarModel.Generators
         public override void Namespaces(StringBuilder sb)
         {
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using System.Linq;");
             sb.AppendLine();
         }
 
@@ -27,12 +28,24 @@ namespace LunarModel.Generators
 
         public override void Aggregate(StringBuilder sb, Entity source, Entity target, string fieldName)
         {
-            sb.AppendLine($"\t\t\treturn {_mapNames[source]}.Where(x => x.ID == {fieldName}).ToArray();");
+            sb.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
         }
 
         public override void List(StringBuilder sb, Entity entity)
         {
-            sb.AppendLine($"\t\t\treturn {_mapNames[entity]}.Skip(offset).Take(count).ToArray();");
+            sb.AppendLine($"\t\t\treturn {_mapNames[entity]}.Values.Skip(offset).Take(count).ToArray();");
+        }
+
+        public override void Get(StringBuilder sb, Entity entity)
+        {
+            var varName = $"{entity.Name.CapLower()}";
+            sb.AppendLine($"var {varName} = new {entity.Name}[IDs.Length];");
+            sb.AppendLine($"for (int i=0; i<{varName}.Length; i++)");
+            sb.AppendLine("{");
+            sb.AppendLine("\tvar id = IDs[i];");
+            sb.AppendLine($"\t{varName}[i] = {_mapNames[entity]}[id];");
+            sb.AppendLine("}");
+            sb.AppendLine($"return {varName};");
         }
 
         public override void Count(StringBuilder sb, Entity entity)
@@ -55,8 +68,8 @@ namespace LunarModel.Generators
 
         public override void Delete(StringBuilder sb, Entity entity)
         {
-            var varName = $"{entity.Name.CapLower()}";
-            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.Contains({varName}))");
+            var varName = $"{entity.Name.CapLower()}ID";
+            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({varName}))");
             sb.AppendLine("\t\t\t{");
             sb.AppendLine($"\t\t\t\t{_mapNames[entity]}.Remove({varName});");
             sb.AppendLine($"\t\t\t\treturn true;");
@@ -66,8 +79,8 @@ namespace LunarModel.Generators
 
         public override void Find(StringBuilder sb, Entity entity)
         {
-            var varName = $"{entity.Name.CapLower()}";
-            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.Contains({varName}))");
+            var varName = $"{entity.Name.CapLower()}ID";
+            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({varName}))");
             sb.AppendLine("\t\t\t{");
             sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{varName}];");
             sb.AppendLine("\t\t\t}");
