@@ -93,6 +93,8 @@ namespace LunarModel
 
         private string serializationClass;
         private string clientClass;
+        private string databaseClass;
+        private string serverClass;
 
         StringBuilder _sb = new StringBuilder();
         int _tabs = 0;
@@ -126,7 +128,9 @@ namespace LunarModel
         public void Generate()
         {
             this.serializationClass = $"{this.Name}Serialization";
+            this.databaseClass = "Database";
             this.clientClass = "Client";
+            this.serverClass = $"Base{Name}Server";
 
             GenerateClasses();
             GenerateSerialization();
@@ -223,8 +227,10 @@ namespace LunarModel
             {
                 TabIn();
 
+                var isSealed = !Entities.Any(x => x.Parent == entity);
+
                 AppendLine();
-                AppendLine($"public class {entity.Name} : " + (entity.Parent != null ? entity.Parent.Name : "Entity"));
+                AppendLine($"public {(isSealed?"sealed ":"")}class {entity.Name} : " + (entity.Parent != null ? entity.Parent.Name : "Entity"));
                 AppendLine("{");
 
                 if (IsAbstract(entity))
@@ -347,7 +353,7 @@ namespace LunarModel
             AppendLine("{");
 
             AppendLine("");
-            AppendLine($"\tpublic class {Name}Database");
+            AppendLine($"\tpublic class {databaseClass}");
             TabIn();
             AppendLine("{");
             generator.Declarations(_sb, this.Entities);
@@ -395,7 +401,7 @@ namespace LunarModel
                 AppendLine("}");
 
                 AppendLine("");
-                AppendLine($"public {entity.Name} Find{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
+                AppendLine($"public {entity.Name} Find{entity.Name}ByID(UInt64 {entity.Name.CapLower()}ID)");
                 AppendLine("{");
                 TabIn();
                 AppendLine($"if ({entity.Name.CapLower()}ID == 0)");
@@ -407,7 +413,7 @@ namespace LunarModel
                 AppendLine("}");
 
                 AppendLine();
-                AppendLine($"public int Get{entity.Name}Count()");
+                AppendLine($"public int Count{entity.Name.Pluralize()}()");
                 AppendLine("{");
                 generator.Count(_sb, entity);
                 AppendLine("}");
@@ -539,6 +545,13 @@ namespace LunarModel
 
             foreach (var entity in this.Entities)
             {
+                if (IsAbstract(entity))
+                {
+                    continue;
+                }
+
+                BeginRegion(entity.Name);
+
                 AppendLine();
                 Append($"public void Create{entity.Name}(");
 
@@ -662,6 +675,8 @@ namespace LunarModel
                         AppendLine("}");
                     }
                 }
+
+                EndRegion();
             }
 
             AppendLine("}");
@@ -674,6 +689,7 @@ namespace LunarModel
 
         private void CheckPermissions(string varName, string idName, string permission)
         {
+            DoServerAuthCheck();
             AppendLine($"var permissions = GetPermissions(authUser, {idName}, \"{varName}\");");
             AppendLine($"if (!permissions.HasFlag(Permissions.{permission}))");
             AppendLine("{");
@@ -687,46 +703,68 @@ namespace LunarModel
         private void ReadRequestVariable(string varName, string type)
         {
             AppendLine($"{type} {varName};");
-
             var temp = $"temp_{varName}";
             AppendLine($"var {temp} = request.GetVariable(\"{varName}\");");
 
             ParseVariable(temp, varName, type);
         }
 
-        private void DoServerAuthCheck(StringBuilder sb)
+        private void DoServerAuthCheck()
         {
-            ReadRequestVariable("authID", "UInt64");
-
-            sb.AppendLine("var authUser = Database.FindUser(authID);");
-            sb.AppendLine($"if (authUser == null)");
-            sb.AppendLine("{");
+            AppendLine($"var token = request.GetVariable(\"token\");");
+            AppendLine($"if (string.IsNullOrEmpty(token))");
+            AppendLine("{");
             TabIn();
-            sb.AppendLine($"\t\t\t\t\treturn Error(\"Authentication token invalid or expired;");
+            AppendLine($"return Error(\"Missing auth token\");");
             TabOut();
-            sb.AppendLine("}");
-            sb.AppendLine();
+            AppendLine("}");
+            AppendLine();
+
+            AppendLine("var authUser = GetAuthUser(token);");
+            AppendLine($"if (authUser == null)");
+            AppendLine("{");
+            TabIn();
+            AppendLine("return Error(\"Authentication token invalid or expired\");");
+            TabOut();
+            AppendLine("}");
+            AppendLine();
         }
 
-        private void ParseVariable(string src, string dest, string type)
+        private void ParseVariable(string src, string dest, string type, bool useTemps = false)
         {
-            if (type == "String")
+            if (type.Equals("String", StringComparison.OrdinalIgnoreCase))
             {
                 AppendLine($"{dest} = {src};");
-                return;
-            }
-
-            if (Enums.Any(x => x.Name == type))
-            {
-                AppendLine($"if (!Enum.TryParse<{type}>({src}, out {dest})");
             }
             else
             {
-                AppendLine($"if (!{type}.TryParse({src}, out {dest})");
+                var name = dest;
+
+                if (useTemps)
+                {
+                    name = "temp_" + dest.Replace('.', '_');
+                    AppendLine($"{type} {name};");
+                }
+
+                if (Enums.Any(x => x.Name == type))
+                {
+                    AppendLine($"if (!Enum.TryParse<{type}>({src}, out {name}))");
+                }
+                else
+                {
+                    AppendLine($"if (!{type}.TryParse({src}, out {name}))");
+                }
+                AppendLine("{");
+                AppendLine($"\treturn Error(\"Invalid argument: {dest}\");");
+                AppendLine("}");
+
+                if (useTemps)
+                {
+                    AppendLine();
+                    AppendLine($"{dest} = {name};");
+                }
             }
-            AppendLine("{");
-            AppendLine($"\treturn Error(\"Invalid argument: {dest}\");");
-            AppendLine("}");
+
             AppendLine();
         }
 
@@ -734,7 +772,11 @@ namespace LunarModel
         {
             BeginDoc();
 
-            AppendLine($"using System;");
+            AppendLine("using System;");
+            AppendLine("using System.Collections.Generic;");
+            AppendLine("using LunarLabs.Parser;");
+            AppendLine("using LunarLabs.WebServer.Core;");
+            AppendLine("using LunarLabs.WebServer.HTTP;");
             AppendLine();
 
             AppendLine($"namespace {Name}.Model");
@@ -755,21 +797,54 @@ namespace LunarModel
             AppendLine("}");
 
             AppendLine();
-            AppendLine($"public abstract class Base{Name}Server: HTTPServer");
+            AppendLine($"public abstract class {serverClass}: HTTPServer");
             AppendLine("{");
             TabIn();
 
-            AppendLine($"public readonly {Name}Database Database;");
+            AppendLine($"public readonly {databaseClass} Database;");
+            
+            AppendLine();
+            AppendLine($"private Dictionary<string, User> _auths = new Dictionary<string, User>();");
 
             AppendLine();
-            AppendLine($"public {Name}Server({Name}Database database, ServerSettings settings, LoggerCallback log = null, SessionStorage sessionStorage = null): base(setings, log, sessionStorage)");
+            AppendLine($"public {serverClass}({databaseClass} database, ServerSettings settings, LoggerCallback log = null, SessionStorage sessionStorage = null): base(settings, log, sessionStorage)");
             AppendLine("{");
             TabIn();
 
             AppendLine("this.Database = database;");
 
+            /*AppendLine();
+            AppendLine($"this.OnNotFound = (request) =>");
+            AppendLine("{");
+            AppendLine("\treturn Error(\"URL not found\");");
+            AppendLine("};");*/
+
+
+            AppendLine();
+            AppendLine($"this.Post(\"/login\", (request) =>");
+            AppendLine("{");
+            TabIn();
+            AppendLine($"var creds = request.GetVariable(\"creds\");");
+            AppendLine($"var user = Authenticate(creds);");
+            AppendLine($"if (user == null)");
+            AppendLine("{");
+            AppendLine($"\treturn Error(\"invalid login details\");");
+            AppendLine("}");
+
+            AppendLine();
+            AppendLine("var token = DateTime.UtcNow.Ticks.ToString();");
+            AppendLine($"_auths[token] = user;");
+            AppendLine($"return token;");
+            TabOut();
+            AppendLine("});");
+
             foreach (var entity in this.Entities)
             {
+                if (IsAbstract(entity))
+                {
+                    continue;
+                }
+
                 BeginRegion(entity.Name);
 
                 var varName = entity.Name.CapLower();
@@ -805,7 +880,7 @@ namespace LunarModel
                 AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
                 AppendLine("{");
                 TabIn();
-                ReadRequestVariable("id", "int");
+                ReadRequestVariable("id", "UInt64");
                 CheckPermissions(varName, "id", "Delete");
                 AppendLine($"var result = Database.Delete{entity.Name}(id);");
                 AppendLine($"return result.ToString();");
@@ -817,7 +892,7 @@ namespace LunarModel
                 AppendLine("{");
                 TabIn();
                 CheckPermissions(varName, "0", "List");
-                AppendLine($"var result = Database.Count{entity.Name.Pluralize()}(id);");
+                AppendLine($"var result = Database.Count{entity.Name.Pluralize()}();");
                 AppendLine($"return result.ToString();");
                 TabOut();
                 AppendLine("});");
@@ -839,11 +914,11 @@ namespace LunarModel
                 AppendLine("{");
                 TabIn();
 
-                ReadRequestVariable("id", "int");
+                ReadRequestVariable("id", "UInt64");
                 ReadRequestVariable("fields", "string");
                 ReadRequestVariable("values", "string");
                 CheckPermissions(varName, "id", "Write");
-                AppendLine($"var {varName} = Database.Find{entity.Name}(id);");
+                AppendLine($"var {varName} = Database.Find{entity.Name}ByID(id);");
 
                 AppendLine($"var fieldEntries = fields.Split('|');");
                 AppendLine($"var valuesEntries = values.Split('|');");
@@ -858,7 +933,7 @@ namespace LunarModel
                 TabIn();
 
                 AppendLine("var field = fieldEntries[i];");
-                AppendLine("var value = valueEntries[i];");
+                AppendLine("var value = valuesEntries[i];");
                 AppendLine($"switch (field)");
                 AppendLine("{");
                 TabIn();
@@ -873,7 +948,7 @@ namespace LunarModel
 
                     AppendLine($"case \"{entry.Name}\":");
                     TabIn();
-                    ParseVariable("value", $"{varName}.{entry.Name}", entry.Type);
+                    ParseVariable("value", $"{varName}.{entry.Name}", entry.Type, true);
                     AppendLine($"break;");
                     AppendLine();
                     TabOut();
@@ -902,7 +977,7 @@ namespace LunarModel
                         AppendLine($"this.Get(\"/{varName}/{reference.Name.CapLower().Pluralize()}/" + "{id}" + "\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                        ReadRequestVariable("id", "int");
+                        ReadRequestVariable("id", "UInt64");
                         CheckPermissions(varName, "id", "Read");
                         AppendLine($"var result = Database.{methodName}(id);");
                         AppendLine($"return result.ToDataNode();");
@@ -925,6 +1000,19 @@ namespace LunarModel
             AppendLine("var result = DataNode.CreateObject(\"result\");");
             AppendLine("result.AddField(\"error\", msg);");
             AppendLine("return result;");
+            TabOut();
+            AppendLine("}");
+
+            AppendLine();
+            AppendLine("private User GetAuthUser(string token)");
+            AppendLine("{");
+            TabIn();
+            AppendLine("if (_auths.ContainsKey(token))");
+            AppendLine("{");
+            AppendLine("\treturn _auths[token];");
+            AppendLine("}");
+            AppendLine();
+            AppendLine("return null;");
             TabOut();
             AppendLine("}");
 
