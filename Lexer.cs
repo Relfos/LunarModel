@@ -142,6 +142,8 @@ namespace LunarModel
                 case '}':
                 case '(':
                 case ')':
+                case '[':
+                case ']':
                 case '.':
                     return true;
 

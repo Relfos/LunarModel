@@ -312,13 +312,51 @@ namespace LunarModel
                                 ExpectToken(":");
 
                                 var fieldType = ExpectType();
-                                ExpectToken(";");
 
                                 var flags = FieldFlags.None;
+                                int flagCount = 0;
 
-                                if (!(fieldType is EntityDeclaration))
+                                var sep = FetchToken();
+                                if (sep.value == "[")
                                 {
-                                    flags |= FieldFlags.Editable;
+                                    do
+                                    {
+                                        var temp = FetchToken();
+                                        if (temp.value == "]")
+                                        {
+                                            break;
+                                        }
+                                        else
+                                        {
+                                            if (flagCount > 0)
+                                            {
+                                                ExpectToken(",");
+                                            }
+                                        }
+
+                                        FieldFlags flag;
+
+                                        if (!Enum.TryParse<FieldFlags>(temp.value, out flag))
+                                        {
+                                            throw new CompilerException("Invalid field flag: " + temp.value);
+                                        }
+
+                                        flags |= flag;
+                                        flagCount++;
+                                    } while (true);
+                                    
+                                }
+                                else
+                                {
+                                    Rewind();
+                                }
+
+                                ExpectToken(";");
+
+
+                                if ((fieldType is EntityDeclaration) && flags.HasFlag(FieldFlags.Editable))
+                                {
+                                    throw new CompilerException($"field {fieldName} can't be editable");
                                 }
 
                                 fields.Add(new EntityField(fieldName, fieldType, flags));

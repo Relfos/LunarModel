@@ -77,14 +77,25 @@ namespace LunarModel.Generators
             sb.AppendLine("\t\t\treturn false;");
         }
 
-        public override void Find(StringBuilder sb, Entity entity)
+        public override void Find(StringBuilder sb, Entity entity, string field)
         {
-            var varName = $"{entity.Name.CapLower()}ID";
-            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({varName}))");
-            sb.AppendLine("\t\t\t{");
-            sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{varName}];");
-            sb.AppendLine("\t\t\t}");
-            sb.AppendLine("\t\t\treturn null;");
+            if (field.Equals("id", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"if ({field} == 0)");
+                sb.AppendLine("{");
+                sb.AppendLine("\t return null;");
+                sb.AppendLine("}");
+
+                sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({field}))");
+                sb.AppendLine("\t\t\t{");
+                sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{field}];");
+                sb.AppendLine("\t\t\t}");
+                sb.AppendLine("\t\t\treturn null;");
+            }
+            else
+            {
+                sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}.Values.FirstOrDefault(x => x.{field} == {field});");
+            }
         }
     }
 }

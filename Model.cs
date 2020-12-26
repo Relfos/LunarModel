@@ -14,6 +14,7 @@ namespace LunarModel
         None = 0,
         Editable = 1,
         Hidden = 2,
+        Searchable = 4,
     }
 
     public class Field
@@ -27,6 +28,11 @@ namespace LunarModel
             Name = name;
             Type = type;
             Flags = flags;
+        }
+
+        public override string ToString()
+        {
+            return $"{Name}:{Type}";
         }
     }
 
@@ -76,7 +82,7 @@ namespace LunarModel
         public abstract void Declarations(StringBuilder sb, IEnumerable<Entity> entities);
         public abstract void Create(StringBuilder sb, Entity entity);
         public abstract void Delete(StringBuilder sb, Entity entity);
-        public abstract void Find(StringBuilder sb, Entity entity);        
+        public abstract void Find(StringBuilder sb, Entity entity, string field);        
         public abstract void Get(StringBuilder sb, Entity entity);
         public abstract void List(StringBuilder sb, Entity entity);
         public abstract void Count(StringBuilder sb, Entity entity);
@@ -400,17 +406,31 @@ namespace LunarModel
                 generator.Delete(_sb, entity);
                 AppendLine("}");
 
-                AppendLine("");
-                AppendLine($"public {entity.Name} Find{entity.Name}ByID(UInt64 {entity.Name.CapLower()}ID)");
-                AppendLine("{");
-                TabIn();
-                AppendLine($"if ({entity.Name.CapLower()}ID == 0)");
-                AppendLine("{");
-                AppendLine("\t return null;");
-                AppendLine("}");
-                generator.Find(_sb, entity);
-                TabOut();
-                AppendLine("}");
+                var searchableFields = new List<KeyValuePair<string, string>>();
+                searchableFields.Add(new KeyValuePair<string, string>("ID", "UInt64"));
+                foreach (var field in entity.Fields) 
+                {
+                    if (field.Flags.HasFlag(FieldFlags.Searchable))
+                    {
+                        var decl = entity.Decls[field];
+
+                        searchableFields.Add(new KeyValuePair<string, string>(field.Name, decl.Type));
+                    }
+                }
+
+                foreach (var field in searchableFields)
+                {
+                    var name = field.Key;
+                    var type = field.Value;
+
+                    AppendLine("");
+                    AppendLine($"public {entity.Name} Find{entity.Name}By{name}({type} {name})");
+                    AppendLine("{");
+                    TabIn();
+                    generator.Find(_sb, entity, name);
+                    TabOut();
+                    AppendLine("}");
+                }
 
                 AppendLine();
                 AppendLine($"public int Count{entity.Name.Pluralize()}()");
