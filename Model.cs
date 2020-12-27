@@ -295,6 +295,29 @@ namespace LunarModel
             }
         }
 
+        private void AppendFromNodeFields(Entity entity, string varName)
+        {
+            if (entity.Parent != null)
+            {
+                AppendFromNodeFields(entity.Parent, varName);
+            }
+
+            foreach (var entry in entity.Decls)
+            {
+                string getStr;
+
+                if (Enums.Any(x => x.Name == entry.Value.Type))
+                {
+                    getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
+                }
+                else
+                {
+                    getStr = entry.Value.Type.CapUpper();
+                }
+
+                AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
+            }
+        }
 
         private void GenerateSerialization()
         {
@@ -337,21 +360,8 @@ namespace LunarModel
                 var varName = entity.Name.CapLower();
                 TabIn();
                 AppendLine($"var {varName} = new {entity.Name}();");
-                foreach (var entry in entity.Decls)
-                {
-                    string getStr;
-
-                    if (Enums.Any(x => x.Name == entry.Value.Type))
-                    {
-                        getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
-                    }
-                    else
-                    {
-                        getStr = entry.Value.Type.CapUpper();
-                    }
-
-                    AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
-                }
+                AppendLine($"{varName}.ID = node.GetUInt64(\"id\");");
+                AppendFromNodeFields(entity, varName);
                 AppendLine($"return {varName};");
                 TabOut();
                 AppendLine("}");
@@ -362,6 +372,7 @@ namespace LunarModel
 
                 TabIn();
                 AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
+                AppendLine($"node.AddField(\"id\", {varName}.ID);");
 
                 AppendToNodeFields(entity, varName);
                 AppendLine($"return node;");
@@ -378,14 +389,14 @@ namespace LunarModel
             EndDoc($"Serialization.cs");
         }
 
-        private string GetConstructorFields(Entity entity, bool withTypes, bool skipInternals)
+        private string GetConstructorFields(Entity entity, bool withTypes, bool skip)
         {
             var result = "";
 
             int declIndex = 0;
             foreach (var field in entity.Fields)
             {
-                if (skipInternals && field.Flags.HasFlag(FieldFlags.Internal))
+                if (skip && field.Flags.HasFlag(FieldFlags.Internal))
                 {
                     continue;
                 }
@@ -571,7 +582,7 @@ namespace LunarModel
         {
             if (requireAuthCheck)
             {
-                AppendLine("if (string.IsNullOrEmpty(_authToken))");
+                AppendLine("if (string.IsNullOrEmpty(AuthToken))");
                 AppendLine("{");
                 TabIn();
                 AppendLine("callback(" + nullValue + ", \"Authentication required.\");");
@@ -583,7 +594,7 @@ namespace LunarModel
             AppendLine("var args = new Dictionary<string, string>();");
             if (requireAuthCheck)
             {
-                AppendLine($"args[\"token\"] = _authToken;");
+                AppendLine($"args[\"token\"] = AuthToken;");
             }
 
             foreach (var entry in args)
@@ -604,14 +615,15 @@ namespace LunarModel
             TabOut();
             AppendLine("}");
 
+            /*
             AppendLine("root = root[\"response\"];");
             AppendLine("if (root == null)");
             AppendLine("{");
             TabIn();
-            AppendLine("callback(" + nullValue + ", \"malformed API response\");");
-            AppendLine("return;");
+                AppendLine("callback(" + nullValue + ", \"malformed API response\");");
+                AppendLine("return;");
             TabOut();
-            AppendLine("}");
+            AppendLine("}");*/
 
             AppendLine();
             callback();
@@ -643,7 +655,7 @@ namespace LunarModel
             AppendLine($"public string URL = \"http://localhost\";");
             AppendLine("public User User { get; private set;}");
             AppendLine();
-            AppendLine("private string _authToken = null;");
+            AppendLine("public string AuthToken { get; private set; }");
 
             AppendLine();
             AppendLine("public static " + clientClass + " Instance { get; private set; }");
@@ -661,7 +673,7 @@ namespace LunarModel
 
             
             DoWebRequest($"'/login'", new[] { "creds"}, "null", () => {
-                AppendLine("this._authToken = root.GetString(\"token\");");
+                AppendLine("this.AuthToken = root.GetString(\"token\");");
                 AppendLine("var node = root.GetNode(\"user\");");
                 AppendLine($"this.User = {serializationClass}.UserFromNode(node);");
                 AppendLine($"callback(this.User, null);");
@@ -673,7 +685,7 @@ namespace LunarModel
             AppendLine($"public void LogOut()");
             AppendLine("{");
             TabIn();
-            AppendLine("this._authToken = null;");
+            AppendLine("this.AuthToken = null;");
             AppendLine("this.User = null;");
             TabOut();
             AppendLine("}");
@@ -769,7 +781,6 @@ namespace LunarModel
                 AppendLine($"public void Get{entity.Name.Pluralize()}(IEnumerable<UInt64> IDs, Action<{entity.Name}[], string> callback)");
                 AppendLine("{");
                 TabIn();
-
                 // TODO ids as arguments
                 DoWebRequest($"'/{entity.Name.ToLower()}/get'", Enumerable.Empty<string>(), "null", () => {
                     AppendLine($"var data = root[\"{plural}\"];");
@@ -782,6 +793,21 @@ namespace LunarModel
                 });
                 TabOut();
                 AppendLine("}");
+
+                /*AppendLine("");
+                AppendLine($"public void Get{entity.Name}(UInt64 ID, Action<{entity.Name}, string> callback)");
+                AppendLine("{");
+                TabIn();
+                // TODO id as arguments
+                DoWebRequest($"'/{entity.Name.ToLower()}/get'", Enumerable.Empty<string>(), "null", () => {
+                    AppendLine($"var data = root[\"{plural}\"];");
+                    AppendLine("var child = data.GetNodeByIndex(0);");
+                    AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(child);");
+                    AppendLine("}");
+                    AppendLine($"callback({entity.Name.CapLower()}, null);");
+                });
+                TabOut();
+                AppendLine("}");*/
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -1197,7 +1223,7 @@ namespace LunarModel
             AppendLine("public DataNode Error(string msg)");
             AppendLine("{");
             TabIn();
-            AppendLine("var result = DataNode.CreateObject(\"result\");");
+            AppendLine("var result = DataNode.CreateObject(\"response\");");
             AppendLine("result.AddField(\"error\", msg);");
             AppendLine("return result;");
             TabOut();
@@ -1207,14 +1233,14 @@ namespace LunarModel
             AppendLine("public DataNode Response(string content)");
             AppendLine("{");
             TabIn();
-            AppendLine("var result = DataNode.CreateObject(\"result\");");
+            AppendLine("var result = DataNode.CreateObject(\"response\");");
             AppendLine("result.AddField(\"content\", content);");
             AppendLine("return result;");
             TabOut();
             AppendLine("}");
 
             AppendLine();
-            AppendLine("private User GetAuthUser(string token)");
+            AppendLine("protected User GetAuthUser(string token)");
             AppendLine("{");
             TabIn();
             AppendLine("if (_auths.ContainsKey(token))");
