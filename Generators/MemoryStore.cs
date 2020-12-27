@@ -37,18 +37,6 @@ namespace LunarModel.Generators
             model.AppendLine($"\t\t\treturn {_mapNames[entity]}.Values.Skip(offset).Take(count).ToArray();");
         }
 
-        public override void Get(Model model, Entity entity)
-        {
-            var varName = $"{entity.Name.CapLower()}";
-            model.AppendLine($"var {varName} = new {entity.Name}[IDs.Length];");
-            model.AppendLine($"for (int i=0; i<{varName}.Length; i++)");
-            model.AppendLine("{");
-            model.AppendLine("\tvar id = IDs[i];");
-            model.AppendLine($"\t{varName}[i] = {_mapNames[entity]}[id];");
-            model.AppendLine("}");
-            model.AppendLine($"return {varName};");
-        }
-
         public override void Count(Model model, Entity entity)
         {
             model.AppendLine($"return {_mapNames[entity]}.Count;");

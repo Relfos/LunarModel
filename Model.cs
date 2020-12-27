@@ -86,7 +86,6 @@ namespace LunarModel
         public abstract void Create(Model model, Entity entity, string varName);
         public abstract void Delete(Model model, Entity entity);
         public abstract void Find(Model model, Entity entity, string field);        
-        public abstract void Get(Model model, Entity entity);
         public abstract void List(Model model, Entity entity);
         public abstract void Count(Model model, Entity entity);
         public abstract void Aggregate(Model model, Entity source, Entity target, string fieldName);
@@ -162,12 +161,12 @@ namespace LunarModel
 
         private void BeginRegion(string name)
         {
-            AppendLine($"#region {name.ToUpper()}", false);
+            AppendLine($"#region {name.ToUpper()}");
         }
 
         private void EndRegion()
         {
-            AppendLine($"#endregion", false);
+            AppendLine($"#endregion");
         }
 
         public void TabIn()
@@ -180,20 +179,17 @@ namespace LunarModel
             _tabs--;
         }
 
-        private void Append(string text, bool addTabs = true)
+        private void Append(string text)
         {
-            if (addTabs)
-            {
-                for (int i = 0; i < _tabs; i++)
-                    _sb.Append('\t');
-            }
+            for (int i = 0; i < _tabs; i++)
+                _sb.Append('\t');
 
             _sb.Append(text);
         }
 
-        public void AppendLine(string text = "", bool addTabs = true)
+        public void AppendLine(string text = "")
         {
-            Append(text + "\n", addTabs);
+            Append(text + "\n");
         }
 
         private void GenerateClasses()
@@ -614,12 +610,6 @@ namespace LunarModel
                     AppendLine("}");
                 }
 
-                AppendLine("");
-                AppendLine($"public {entity.Name}[] Get{entity.Name.Pluralize()}(UInt64[] IDs)");
-                AppendLine("{");
-                generator.Get(this, entity);
-                AppendLine("}");
-
 
                 if (entity.Fields.Any(x => x.Flags.HasFlag(FieldFlags.Editable)))
                 {
@@ -756,7 +746,7 @@ namespace LunarModel
             
             DoWebRequest($"'/login'", new[] { "creds"}, "null", () => {
                 AppendLine("this.AuthToken = root.GetString(\"token\");");
-                AppendLine("var node = root.GetNode(\"user\");");
+                AppendLine("var node = root.GetNodeByIndex(1);");
                 AppendLine($"this.User = {serializationClass}.UserFromNode(node);");
                 AppendLine($"callback(this.User, null);");
             }, false);
@@ -781,30 +771,28 @@ namespace LunarModel
 
                 BeginRegion(entity.Name);
 
-                AppendLine();
-                Append($"public void Create{entity.Name}(");
+                var fieldStr = "";
 
                 int declIndex = 0;
                 foreach (var entry in entity.Decls)
                 {
                     if (declIndex > 0)
                     {
-                        Append(", ", false);
+                        fieldStr+=", ";
                     }
 
-                    Append($"{entry.Value.Type} {entry.Value.Name.CapLower()}", false);
+                    fieldStr+=  $"{entry.Value.Type} {entry.Value.Name.CapLower()}";
 
                     declIndex++;
                 }
 
                 if (declIndex > 0)
                 {
-                    Append(", ", false);
+                    fieldStr += ", ";
                 }
 
-                Append($"Action<{entity.Name}, string> callback", false);
-
-                AppendLine(")", false);
+                AppendLine();
+                AppendLine($"public void Create{entity.Name}(Action<{entity.Name}, string> callback)");
                 AppendLine("{");
                 TabIn();
 
@@ -815,7 +803,7 @@ namespace LunarModel
                     AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
                     AppendLine($"callback({entity.Name.CapLower()}, null);");
                 });
-                TabOut();
+                //TabOut();
                 AppendLine("}");
 
                 var idName = $"{entity.Name.CapLower()}ID";
@@ -860,11 +848,13 @@ namespace LunarModel
                 AppendLine("}");
 
                 AppendLine("");
-                AppendLine($"public void Get{entity.Name.Pluralize()}(IEnumerable<UInt64> IDs, Action<{entity.Name}[], string> callback)");
+                AppendLine($"public void Find{entity.Name.Pluralize()}(IEnumerable<UInt64> {entity.Name}IDs, Action<{entity.Name}[], string> callback)");
                 AppendLine("{");
                 TabIn();
-                // TODO ids as arguments
-                DoWebRequest($"'/{entity.Name.ToLower()}/get'", Enumerable.Empty<string>(), "null", () => {
+
+                var args = new Dictionary<string, string>();
+                AppendLine($"var IDs = string.Join(\"|\", {entity.Name}IDs);");
+                DoWebRequest($"'/{entity.Name.ToLower()}/find'", new[] { "IDs" }, "null", () => {
                     AppendLine($"var data = root[\"{plural}\"];");
                     AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
                     AppendLine("for (int i=0; i<data.ChildCount; i++) {");
@@ -979,6 +969,11 @@ namespace LunarModel
 
         private void ParseVariable(string src, string dest, string type, bool useTemps = false)
         {
+            AppendLine($"if (string.IsNullOrEmpty({src}))");
+            AppendLine("{");
+            AppendLine($"\treturn Error(\"Missing argument: {dest}\");");
+            AppendLine("}");
+
             if (type.Equals("String", StringComparison.OrdinalIgnoreCase))
             {
                 AppendLine($"{dest} = {src};");
@@ -992,11 +987,6 @@ namespace LunarModel
                     name = "temp_" + dest.Replace('.', '_');
                     AppendLine($"{type} {name};");
                 }
-
-                AppendLine($"if (string.IsNullOrEmpty({src}))");
-                AppendLine("{");
-                AppendLine($"\treturn Error(\"Missing argument: {dest}\");");
-                AppendLine("}");
 
                 if (Enums.Any(x => x.Name == type))
                 {
@@ -1057,6 +1047,7 @@ namespace LunarModel
             BeginDoc();
 
             AppendLine("using System;");
+            AppendLine("using System.Linq;");
             AppendLine("using System.Collections.Generic;");
             AppendLine("using LunarLabs.Parser;");
             AppendLine("using LunarLabs.Parser.JSON;");
@@ -1217,6 +1208,20 @@ namespace LunarModel
                 AppendLine("});");
 
                 AppendLine();
+                AppendLine($"this.Post(\"/{varName}/find\", (request) =>");
+                AppendLine("{");
+                TabIn();
+                CheckPermissions(varName, "0", "List");
+                ReadRequestVariable("IDs", "string");
+                AppendLine($"var items = IDs.Split('|').Select(x => UInt64.Parse(x)).Select(x => Database.Find{entity.Name}ByID(x)).ToArray();");
+                AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
+                AppendLine("var result = DataNode.CreateObject(\"response\");");
+                AppendLine("result.AddNode(array);");
+                AppendLine("return result;");
+                TabOut();
+                AppendLine("});");
+
+                AppendLine();
                 AppendLine($"this.Post(\"/{varName}/edit/\", (request) =>");
                 AppendLine("{");
                 TabIn();
@@ -1285,10 +1290,14 @@ namespace LunarModel
                         AppendLine($"this.Post(\"/{varName}/{reference.Name.CapLower().Pluralize()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                        ReadRequestVariable("id", "UInt64");
-                        CheckPermissions(varName, "id", "Read");
-                        AppendLine($"var result = Database.{methodName}(id);");
-                        AppendLine("return " + serializationClass + ".ToArray(\"" + targets + "\", result, " + serializationClass + "." + reference.Name + "ToNode);");
+                        var idName = $"{entity.Name}ID";
+                        ReadRequestVariable(idName, "UInt64");
+                        CheckPermissions(varName, idName, "Read");
+                        AppendLine($"var items = Database.{methodName}({idName});");
+                        AppendLine("var array =  " + serializationClass + ".ToArray(\"" + targets + "\", items, " + serializationClass + "." + reference.Name + "ToNode);");
+                        AppendLine("var result = DataNode.CreateObject(\"response\");");
+                        AppendLine("result.AddNode(array);");
+                        AppendLine("return result;");
                         TabOut();
                         AppendLine("});");
                     }
