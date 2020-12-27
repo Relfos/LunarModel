@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace LunarModel.Generators
@@ -8,56 +9,56 @@ namespace LunarModel.Generators
     {
         private Dictionary<Entity, string> _mapNames = new Dictionary<Entity, string>();
 
-        public override void Namespaces(StringBuilder sb)
+        public override void Namespaces(Model model)
         {
-            sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using System.Linq;");
-            sb.AppendLine();
+            model.AppendLine("using System.Collections.Generic;");
+            model.AppendLine("using System.Linq;");
+            model.AppendLine();
         }
 
-        public override void Declarations(StringBuilder sb, IEnumerable<Entity> entities)
+        public override void Declarations(Model model, IEnumerable<Entity> entities)
         {
             foreach (var entity in entities)
             {
                 var decl = $"Dictionary<UInt64, {entity.Name}>";
                 var mapName = $"_{entity.Name.CapLower()}s";
                 _mapNames[entity] = mapName;
-                sb.AppendLine($"\t\tprivate {decl} {mapName} = new {decl}();");
+                model.AppendLine($"\t\tprivate {decl} {mapName} = new {decl}();");
             }
         }
 
-        public override void Aggregate(StringBuilder sb, Entity source, Entity target, string fieldName)
+        public override void Aggregate(Model model, Entity source, Entity target, string fieldName)
         {
-            sb.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
+            model.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
         }
 
-        public override void List(StringBuilder sb, Entity entity)
+        public override void List(Model model, Entity entity)
         {
-            sb.AppendLine($"\t\t\treturn {_mapNames[entity]}.Values.Skip(offset).Take(count).ToArray();");
+            model.AppendLine($"\t\t\treturn {_mapNames[entity]}.Values.Skip(offset).Take(count).ToArray();");
         }
 
-        public override void Get(StringBuilder sb, Entity entity)
+        public override void Get(Model model, Entity entity)
         {
             var varName = $"{entity.Name.CapLower()}";
-            sb.AppendLine($"var {varName} = new {entity.Name}[IDs.Length];");
-            sb.AppendLine($"for (int i=0; i<{varName}.Length; i++)");
-            sb.AppendLine("{");
-            sb.AppendLine("\tvar id = IDs[i];");
-            sb.AppendLine($"\t{varName}[i] = {_mapNames[entity]}[id];");
-            sb.AppendLine("}");
-            sb.AppendLine($"return {varName};");
+            model.AppendLine($"var {varName} = new {entity.Name}[IDs.Length];");
+            model.AppendLine($"for (int i=0; i<{varName}.Length; i++)");
+            model.AppendLine("{");
+            model.AppendLine("\tvar id = IDs[i];");
+            model.AppendLine($"\t{varName}[i] = {_mapNames[entity]}[id];");
+            model.AppendLine("}");
+            model.AppendLine($"return {varName};");
         }
 
-        public override void Count(StringBuilder sb, Entity entity)
+        public override void Count(Model model, Entity entity)
         {
-            sb.AppendLine($"\t\t\treturn {_mapNames[entity]}.Count;");
+            model.AppendLine($"return {_mapNames[entity]}.Count;");
         }
 
-        private void InitDecls(StringBuilder sb, Entity entity, string varName, bool skipInternals)
+        private void InitDecls(Model model,Entity entity, string varName, bool skipInternals)
         {
             if (entity.Parent != null)
             {
-                InitDecls(sb, entity.Parent, varName, true);
+                InitDecls(model, entity.Parent, varName, true);
             }
 
             foreach (var field in entity.Fields)
@@ -68,48 +69,107 @@ namespace LunarModel.Generators
                 }
 
                 var decl = entity.Decls[field];
-                sb.AppendLine($"\t\t\t{varName}.{decl.Name} = {decl.Name.CapLower()};");
+                model.AppendLine($"\t\t\t{varName}.{decl.Name} = {decl.Name.CapLower()};");
             }
         }
 
-        public override void Create(StringBuilder sb, Entity entity, string varName)
+        public override void Create(Model model,Entity entity, string varName)
         {
-            sb.AppendLine($"\t\t\t{varName}.ID = (UInt64)({_mapNames[entity]}.Count + 1);");
-            InitDecls(sb, entity, varName, false);
-            sb.AppendLine($"\t\t\t{_mapNames[entity]}[{varName}.ID] = {varName};");
-            sb.AppendLine($"\t\t\treturn {varName};");
+            model.AppendLine($"\t\t\t{varName}.ID = (UInt64)({_mapNames[entity]}.Count + 1);");
+            InitDecls(model, entity, varName, false);
+            model.AppendLine($"\t\t\t{_mapNames[entity]}[{varName}.ID] = {varName};");
+            model.AppendLine($"\t\t\treturn {varName};");
         }
 
-        public override void Delete(StringBuilder sb, Entity entity)
+        public override void Delete(Model model,Entity entity)
         {
             var varName = $"{entity.Name.CapLower()}ID";
-            sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({varName}))");
-            sb.AppendLine("\t\t\t{");
-            sb.AppendLine($"\t\t\t\t{_mapNames[entity]}.Remove({varName});");
-            sb.AppendLine($"\t\t\t\treturn true;");
-            sb.AppendLine("\t\t\t}");
-            sb.AppendLine("\t\t\treturn false;");
+            model.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({varName}))");
+            model.AppendLine("\t\t\t{");
+            model.AppendLine($"\t\t\t\t{_mapNames[entity]}.Remove({varName});");
+            model.AppendLine($"\t\t\t\treturn true;");
+            model.AppendLine("\t\t\t}");
+            model.AppendLine("\t\t\treturn false;");
         }
 
-        public override void Find(StringBuilder sb, Entity entity, string field)
+        public override void Find(Model model,Entity entity, string field)
         {
             if (field.Equals("id", StringComparison.OrdinalIgnoreCase))
             {
-                sb.AppendLine($"if ({field} == 0)");
-                sb.AppendLine("{");
-                sb.AppendLine("\t return null;");
-                sb.AppendLine("}");
+                model.AppendLine($"if ({field} == 0)");
+                model.AppendLine("{");
+                model.AppendLine("\t return null;");
+                model.AppendLine("}");
 
-                sb.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({field}))");
-                sb.AppendLine("\t\t\t{");
-                sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{field}];");
-                sb.AppendLine("\t\t\t}");
-                sb.AppendLine("\t\t\treturn null;");
+                model.AppendLine($"\t\t\tif ({_mapNames[entity]}.ContainsKey({field}))");
+                model.AppendLine("\t\t\t{");
+                model.AppendLine($"\t\t\t\treturn {_mapNames[entity]}[{field}];");
+                model.AppendLine("\t\t\t}");
+                model.AppendLine("\t\t\treturn null;");
             }
             else
             {
-                sb.AppendLine($"\t\t\t\treturn {_mapNames[entity]}.Values.FirstOrDefault(x => x.{field} == {field});");
+                model.AppendLine($"\t\t\t\treturn {_mapNames[entity]}.Values.FirstOrDefault(x => x.{field} == {field});");
             }
+        }
+
+
+        public override void Edit(Model model, Entity entity, string idName)
+        {
+            var varName = entity.Name.CapLower();
+            model.AppendLine($"var {varName} = this.Find{entity.Name}ByID({idName});");
+
+            model.AppendLine($"switch(field)");
+            model.AppendLine("{");
+
+            model.TabIn();
+            foreach (var field in entity.Fields)
+            {
+                if (!field.Flags.HasFlag(FieldFlags.Editable))
+                {
+                    continue;
+                }
+
+                var decl = entity.Decls[field];
+
+                model.AppendLine("case \"" + field.Name + "\":");
+                model.TabIn();
+
+                if (decl.Type.Equals("string", StringComparison.OrdinalIgnoreCase))
+                {
+                    model.AppendLine($"{varName}.{field.Name} = value;");
+                }
+                else
+                {
+                    model.AppendLine($"{decl.Type} {field.Name};");
+
+                    if (model.Enums.Any(x => x.Name == decl.Type))
+                    {
+                        model.AppendLine($"if (!Enum.TryParse<{decl.Type}>(value, out {field.Name}))");
+                    }
+                    else
+                    {
+                        model.AppendLine($"if (!{decl.Type}.TryParse(value, out {field.Name}))");
+                    }
+                    model.AppendLine("{");
+                    model.AppendLine($"\treturn false;");
+                    model.AppendLine("}");
+
+                    model.AppendLine($"{varName}.{field.Name} = {field.Name};");
+                }
+
+                model.AppendLine("return true;");
+                model.AppendLine();
+                model.TabOut();
+            }
+
+            model.AppendLine("default:");
+            model.AppendLine($"\treturn false;");
+
+            model.TabOut();
+
+            model.AppendLine("}");
+
         }
     }
 }

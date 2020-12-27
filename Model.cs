@@ -54,6 +54,8 @@ namespace LunarModel
         public Entity Parent;
         public string Name;
         public List<Field> Fields;
+        public string KindEnumName;
+        public List<Entity> SubEntities = new List<Entity>();
 
         public Dictionary<Field, FieldDecl> Decls = new Dictionary<Field, FieldDecl>();
 
@@ -79,15 +81,16 @@ namespace LunarModel
 
     public abstract class Generator
     {
-        public abstract void Namespaces(StringBuilder sb);
-        public abstract void Declarations(StringBuilder sb, IEnumerable<Entity> entities);
-        public abstract void Create(StringBuilder sb, Entity entity, string varName);
-        public abstract void Delete(StringBuilder sb, Entity entity);
-        public abstract void Find(StringBuilder sb, Entity entity, string field);        
-        public abstract void Get(StringBuilder sb, Entity entity);
-        public abstract void List(StringBuilder sb, Entity entity);
-        public abstract void Count(StringBuilder sb, Entity entity);
-        public abstract void Aggregate(StringBuilder sb, Entity source, Entity target, string fieldName);
+        public abstract void Namespaces(Model model);
+        public abstract void Declarations(Model model, IEnumerable<Entity> entities);
+        public abstract void Create(Model model, Entity entity, string varName);
+        public abstract void Delete(Model model, Entity entity);
+        public abstract void Find(Model model, Entity entity, string field);        
+        public abstract void Get(Model model, Entity entity);
+        public abstract void List(Model model, Entity entity);
+        public abstract void Count(Model model, Entity entity);
+        public abstract void Aggregate(Model model, Entity source, Entity target, string fieldName);
+        public abstract void Edit(Model model, Entity entity, string idName);
     }
 
     public class Model
@@ -167,12 +170,12 @@ namespace LunarModel
             AppendLine($"#endregion", false);
         }
 
-        private void TabIn()
+        public void TabIn()
         {
             _tabs++;
         }
 
-        private void TabOut()
+        public void TabOut()
         {
             _tabs--;
         }
@@ -188,7 +191,7 @@ namespace LunarModel
             _sb.Append(text);
         }
 
-        private void AppendLine(string text = "", bool addTabs = true)
+        public void AppendLine(string text = "", bool addTabs = true)
         {
             Append(text + "\n", addTabs);
         }
@@ -243,7 +246,13 @@ namespace LunarModel
                 if (IsAbstract(entity))
                 {
                     var enumName = $"{entity.Name}Kind";
+                    entity.KindEnumName = enumName;
                     entity.Fields.Insert(0, new Field(enumName, enumName, FieldFlags.Internal));
+                }
+                else
+                if (entity.Parent != null)
+                {
+                    entity.Parent.SubEntities.Add(entity);
                 }
 
                 foreach (var field in entity.Fields)
@@ -285,7 +294,7 @@ namespace LunarModel
 
             foreach (var field in entity.Fields)
             {
-                if (field.Flags.HasFlag(FieldFlags.Internal) || field.Flags.HasFlag(FieldFlags.Hidden))
+                if (field.Flags.HasFlag(FieldFlags.Hidden))
                 {
                     continue;
                 }
@@ -302,20 +311,27 @@ namespace LunarModel
                 AppendFromNodeFields(entity.Parent, varName);
             }
 
-            foreach (var entry in entity.Decls)
+            foreach (var field in entity.Fields)
             {
+                if (field.Flags.HasFlag(FieldFlags.Hidden))
+                {
+                    continue;
+                }
+
+                var decl = entity.Decls[field];
+
                 string getStr;
 
-                if (Enums.Any(x => x.Name == entry.Value.Type))
+                if (Enums.Any(x => x.Name == decl.Type))
                 {
-                    getStr = $"Enum<{entry.Value.Type.CapUpper()}>";
+                    getStr = $"Enum<{decl.Type.CapUpper()}>";
                 }
                 else
                 {
-                    getStr = entry.Value.Type.CapUpper();
+                    getStr = decl.Type.CapUpper();
                 }
 
-                AppendLine($"{varName}.{entry.Value.Name} = node.Get{getStr}(\"{entry.Value.Name}\");");
+                AppendLine($"{varName}.{decl.Name} = node.Get{getStr}(\"{decl.Name}\");");
             }
         }
 
@@ -359,10 +375,38 @@ namespace LunarModel
                 AppendLine("{");
                 var varName = entity.Name.CapLower();
                 TabIn();
-                AppendLine($"var {varName} = new {entity.Name}();");
-                AppendLine($"{varName}.ID = node.GetUInt64(\"id\");");
-                AppendFromNodeFields(entity, varName);
-                AppendLine($"return {varName};");
+
+                if (IsAbstract(entity))
+                {
+                    AppendLine($"var kind = node.GetEnum<{entity.KindEnumName}>(\"{entity.KindEnumName}\");");
+                    AppendLine($"switch (kind)");
+                    AppendLine("{");
+                    TabIn();
+                    foreach (var child in entity.SubEntities)
+                    {
+                        AppendLine($"case {entity.KindEnumName}.{child.Name}:");
+                        TabIn();
+                        AppendLine($"return {child.Name}FromNode(node);");
+                        AppendLine();
+                        TabOut();
+                    }
+
+                    AppendLine($"default:");
+                    TabIn();
+                    AppendLine($"throw new Exception(\"Unknown {entity.Name} kind\");");
+                    TabOut();
+
+                    TabOut();
+                    AppendLine("}");
+                }
+                else
+                {
+                    AppendLine($"var {varName} = new {entity.Name}();");
+                    AppendLine($"{varName}.ID = node.GetUInt64(\"id\");");
+                    AppendFromNodeFields(entity, varName);
+                    AppendLine($"return {varName};");
+                }
+
                 TabOut();
                 AppendLine("}");
 
@@ -371,11 +415,38 @@ namespace LunarModel
                 AppendLine("{");
 
                 TabIn();
-                AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
-                AppendLine($"node.AddField(\"id\", {varName}.ID);");
 
-                AppendToNodeFields(entity, varName);
-                AppendLine($"return node;");
+                if (IsAbstract(entity))
+                {
+                    AppendLine($"switch ({varName}.{entity.KindEnumName})");
+                    AppendLine("{");
+                    TabIn();
+                    foreach (var child in entity.SubEntities)
+                    {
+                        AppendLine($"case {entity.KindEnumName}.{child.Name}:");
+                        TabIn();
+                        AppendLine($"return {child.Name}ToNode(({child.Name}){varName});");
+                        AppendLine();
+                        TabOut();
+                    }
+
+                    AppendLine($"default:");
+                    TabIn();
+                    AppendLine($"throw new Exception(\"Unknown {entity.Name} kind\");");
+                    TabOut();
+
+                    TabOut();
+                    AppendLine("}");
+                }
+                else
+                {
+                    AppendLine($"var node = DataNode.CreateObject(\"{entity.Name}\");");
+                    AppendLine($"node.AddField(\"id\", {varName}.ID);");
+
+                    AppendToNodeFields(entity, varName);
+                    AppendLine($"return node;");
+                }
+
                 TabOut();
                 AppendLine("}");
 
@@ -426,7 +497,7 @@ namespace LunarModel
             BeginDoc();
 
             AppendLine("using System;");
-            generator.Namespaces(_sb);
+            generator.Namespaces(this);
 
             AppendLine($"namespace {Name}.Model");
             AppendLine("{");
@@ -435,7 +506,7 @@ namespace LunarModel
             AppendLine($"\tpublic class {databaseClass}");
             TabIn();
             AppendLine("{");
-            generator.Declarations(_sb, this.Entities);
+            generator.Declarations(this, this.Entities);
 
             foreach (var entity in this.Entities)
             {
@@ -482,7 +553,7 @@ namespace LunarModel
                 {
                     AppendLine($"var {varName} = new {entity.Name}();");
                 }
-                generator.Create(_sb, entity, varName);
+                generator.Create(this, entity, varName);
                 TabOut();
                 AppendLine("}");
 
@@ -498,7 +569,7 @@ namespace LunarModel
                     AppendLine("}");
                     TabOut();
                 }
-                generator.Delete(_sb, entity);
+                generator.Delete(this, entity);
                 AppendLine("}");
 
                 var searchableFields = new List<KeyValuePair<string, string>>();
@@ -522,7 +593,7 @@ namespace LunarModel
                     AppendLine($"public {entity.Name} Find{entity.Name}By{name}({type} {name})");
                     AppendLine("{");
                     TabIn();
-                    generator.Find(_sb, entity, name);
+                    generator.Find(this, entity, name);
                     TabOut();
                     AppendLine("}");
                 }
@@ -530,7 +601,7 @@ namespace LunarModel
                 AppendLine();
                 AppendLine($"public int Count{entity.Name.Pluralize()}()");
                 AppendLine("{");
-                generator.Count(_sb, entity);
+                generator.Count(this, entity);
                 AppendLine("}");
 
                 if (!IsAbstract(entity))
@@ -539,15 +610,26 @@ namespace LunarModel
                     AppendLine($"public {entity.Name}[] List{entity.Name.Pluralize()}(int page, int count)");
                     AppendLine("{");
                     AppendLine("\tvar offset = page * count;");
-                    generator.List(_sb, entity);
+                    generator.List(this, entity);
                     AppendLine("}");
                 }
 
                 AppendLine("");
                 AppendLine($"public {entity.Name}[] Get{entity.Name.Pluralize()}(UInt64[] IDs)");
                 AppendLine("{");
-                generator.Get(_sb, entity);
+                generator.Get(this, entity);
                 AppendLine("}");
+
+
+                if (entity.Fields.Any(x => x.Flags.HasFlag(FieldFlags.Editable)))
+                {
+                    AppendLine("");
+                    var idName = $"{entity.Name.CapLower()}ID";
+                    AppendLine($"public bool Edit{entity.Name}(UInt64 {idName}, string field, string value)");
+                    AppendLine("{");
+                    generator.Edit(this, entity, idName);
+                    AppendLine("}");
+                }
 
 
                 var refs = GetReferences(entity);
@@ -562,7 +644,7 @@ namespace LunarModel
                         AppendLine();
                         AppendLine($"public {reference.Name}[] {methodName}(UInt64 {fieldName})");
                         AppendLine("{");
-                        generator.Aggregate(_sb, reference, entity, fieldName);
+                        generator.Aggregate(this, reference, entity, fieldName);
                         AppendLine("}");
                     }
                 }

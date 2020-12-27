@@ -330,7 +330,9 @@ namespace LunarModel
                                         {
                                             if (flagCount > 0)
                                             {
+                                                Rewind();
                                                 ExpectToken(",");
+                                                temp = FetchToken();
                                             }
                                         }
 
