@@ -65,6 +65,21 @@ namespace LunarModel
             Parent = parent;
             Fields = fields.ToList();
         }
+
+        public bool HasEditableFields()
+        {
+            if (Fields.Any(x => x.Flags.HasFlag(FieldFlags.Editable)))
+            {
+                return true;
+            }
+
+            if (Parent != null)
+            {
+                return Parent.HasEditableFields();
+            }
+
+            return false;
+        }
     }
 
     public class Enumerate
@@ -764,11 +779,6 @@ namespace LunarModel
 
             foreach (var entity in this.Entities)
             {
-                if (IsAbstract(entity))
-                {
-                    continue;
-                }
-
                 BeginRegion(entity.Name);
 
                 var fieldStr = "";
@@ -791,32 +801,60 @@ namespace LunarModel
                     fieldStr += ", ";
                 }
 
-                AppendLine();
-                AppendLine($"public void Create{entity.Name}(Action<{entity.Name}, string> callback)");
-                AppendLine("{");
-                TabIn();
-
-                var fields = new List<string>();
-
-                DoWebRequest($"'/{entity.Name.ToLower()}/create'", fields, "null", () => {
-                    AppendLine($"var data = root[\"{entity.Name.CapLower()}\"];");
-                    AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
-                    AppendLine($"callback({entity.Name.CapLower()}, null);");
-                });
-                //TabOut();
-                AppendLine("}");
-
+                var isAbstract = IsAbstract(entity);
                 var idName = $"{entity.Name.CapLower()}ID";
-                AppendLine("");
-                AppendLine($"public void Delete{entity.Name}(UInt64 {idName}, Action<bool, string> callback)");
-                AppendLine("{");
-                TabIn();
-                DoWebRequest($"'/{entity.Name.ToLower()}/delete'", new[] { idName }, "false", () => {
-                    AppendLine($"var result = root.GetBool(\"{entity.Name.CapLower()}\");");
-                    AppendLine($"callback(result, null);");
-                });
-                TabOut();
-                AppendLine("}");
+
+                if (!isAbstract)
+                {
+                    AppendLine();
+                    AppendLine($"public void Create{entity.Name}(Action<{entity.Name}, string> callback)");
+                    AppendLine("{");
+                    TabIn();
+
+                    var fields = new List<string>();
+
+                    DoWebRequest($"'/{entity.Name.ToLower()}/create'", fields, "null", () => {
+                        AppendLine($"var data = root[\"{entity.Name.CapLower()}\"];");
+                        AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
+                        AppendLine($"callback({entity.Name.CapLower()}, null);");
+                    });
+                    //TabOut();
+                    AppendLine("}");
+
+                    AppendLine("");
+                    AppendLine($"public void Delete{entity.Name}(UInt64 {idName}, Action<bool, string> callback)");
+                    AppendLine("{");
+                    TabIn();
+                    DoWebRequest($"'/{entity.Name.ToLower()}/delete'", new[] { idName }, "false", () => {
+                        AppendLine($"var result = root.GetBool(\"{entity.Name.CapLower()}\");");
+                        AppendLine($"callback(result, null);");
+                    });
+                    TabOut();
+                    AppendLine("}");
+                }
+
+
+                if (entity.HasEditableFields())
+                {
+                    AppendLine("");
+                    AppendLine($"public void Edit{entity.Name}(UInt64 {idName}, Dictionary<string, string> entries, Action<bool, string> callback)");
+                    AppendLine("{");
+                    TabIn();
+                    AppendLine($"if (entries.Count == 0)");
+                    AppendLine("{");
+                    TabIn();
+                        AppendLine($"callback(true, null);");
+                    TabOut();
+                    AppendLine("}");
+                    AppendLine($"var fields = string.Join(\"|\", entries.Keys);");
+                    AppendLine($"var values = string.Join(\"|\", entries.Values);");
+                    DoWebRequest($"'/{entity.Name.ToLower()}/edit'", new[] { idName, "fields", "values" }, "false", () => {
+                        AppendLine($"var result = root.GetBool(\"{entity.Name.CapLower()}\");");
+                        AppendLine($"callback(result, null);");
+                    });
+                    TabOut();
+                    AppendLine("}");
+                }
 
                 AppendLine("");
                 AppendLine($"public void Count{entity.Name.Pluralize()}(Action<int, string> callback)");
@@ -829,42 +867,46 @@ namespace LunarModel
                 TabOut();
                 AppendLine("}");
 
-                AppendLine("");
-                AppendLine($"public void List{entity.Name.Pluralize()}(int page, int count, Action<{entity.Name}[], string> callback)");
-                AppendLine("{");
-                TabIn();
+                if (!isAbstract)
+                {
+                    AppendLine("");
+                    AppendLine($"public void List{entity.Name.Pluralize()}(int page, int count, Action<{entity.Name}[], string> callback)");
+                    AppendLine("{");
+                    TabIn();
 
-                var plural = entity.Name.CapLower().Pluralize();
-                DoWebRequest($"'/{entity.Name.ToLower()}/list'",new[] { "page", "count" }, "null", () => {
-                    AppendLine($"var data = root[\"{plural}\"];");
-                    AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
-                    AppendLine("for (int i=0; i<data.ChildCount; i++) {");
-                    AppendLine("var child = data.GetNodeByIndex(i);");
-                    AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                    var plural = entity.Name.CapLower().Pluralize();
+                    DoWebRequest($"'/{entity.Name.ToLower()}/list'", new[] { "page", "count" }, "null", () => {
+                        AppendLine($"var data = root[\"{plural}\"];");
+                        AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                        AppendLine("for (int i=0; i<data.ChildCount; i++) {");
+                        AppendLine("var child = data.GetNodeByIndex(i);");
+                        AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                        AppendLine("}");
+                        AppendLine($"callback({plural}, null);");
+                    });
+                    TabOut();
                     AppendLine("}");
-                    AppendLine($"callback({plural}, null);");
-                });
-                TabOut();
-                AppendLine("}");
 
-                AppendLine("");
-                AppendLine($"public void Find{entity.Name.Pluralize()}(IEnumerable<UInt64> {entity.Name}IDs, Action<{entity.Name}[], string> callback)");
-                AppendLine("{");
-                TabIn();
+                    AppendLine("");
+                    AppendLine($"public void Find{entity.Name.Pluralize()}(IEnumerable<UInt64> {entity.Name}IDs, Action<{entity.Name}[], string> callback)");
+                    AppendLine("{");
+                    TabIn();
 
-                var args = new Dictionary<string, string>();
-                AppendLine($"var IDs = string.Join(\"|\", {entity.Name}IDs);");
-                DoWebRequest($"'/{entity.Name.ToLower()}/find'", new[] { "IDs" }, "null", () => {
-                    AppendLine($"var data = root[\"{plural}\"];");
-                    AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
-                    AppendLine("for (int i=0; i<data.ChildCount; i++) {");
-                    AppendLine("var child = data.GetNodeByIndex(i);");
-                    AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                    var args = new Dictionary<string, string>();
+                    AppendLine($"var IDs = string.Join(\"|\", {entity.Name}IDs);");
+                    DoWebRequest($"'/{entity.Name.ToLower()}/find'", new[] { "IDs" }, "null", () => {
+                        AppendLine($"var data = root[\"{plural}\"];");
+                        AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                        AppendLine("for (int i=0; i<data.ChildCount; i++) {");
+                        AppendLine("var child = data.GetNodeByIndex(i);");
+                        AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                        AppendLine("}");
+                        AppendLine($"callback({plural}, null);");
+                    });
+                    TabOut();
                     AppendLine("}");
-                    AppendLine($"callback({plural}, null);");
-                });
-                TabOut();
-                AppendLine("}");
+                }
+
 
                 /*AppendLine("");
                 AppendLine($"public void Get{entity.Name}(UInt64 ID, Action<{entity.Name}, string> callback)");
@@ -1042,6 +1084,31 @@ namespace LunarModel
             return fields;
         }
 
+        private void AppendEditableFields(Entity entity, string varName)
+        {
+            if (entity.Parent != null)
+            {
+                AppendEditableFields(entity.Parent, varName);
+            }
+
+            foreach (var field in entity.Fields)
+            {
+                if (!field.Flags.HasFlag(FieldFlags.Editable))
+                {
+                    continue;
+                }
+
+                var entry = entity.Decls[field];
+
+                AppendLine($"case \"{entry.Name}\":");
+                TabIn();
+                ParseVariable("value", $"{varName}.{entry.Name}", entry.Type, true);
+                AppendLine($"break;");
+                AppendLine();
+                TabOut();
+            }
+        }
+
         private void GenerateServer()
         {
             BeginDoc();
@@ -1072,6 +1139,17 @@ namespace LunarModel
             TabOut();
             AppendLine("}");
 
+
+            AppendLine();
+            AppendLine("public enum AuthMode");
+            AppendLine("{");
+            TabIn();
+            AppendLine("Login,");
+            AppendLine("Signup,");
+            AppendLine("Mixed,");
+            TabOut();
+            AppendLine("}");
+    
             AppendLine();
             AppendLine($"public abstract class {serverClass}: HTTPServer");
             AppendLine("{");
@@ -1143,42 +1221,44 @@ namespace LunarModel
 
             foreach (var entity in this.Entities)
             {
-                if (IsAbstract(entity))
-                {
-                    continue;
-                }
+                var isAbstract = IsAbstract(entity);
+                var idName = $"{entity.Name}ID";
 
                 AppendLine();
                 BeginRegion(entity.Name);
 
                 var varName = entity.Name.CapLower();
 
-                AppendLine();
-                AppendLine($"this.Post(\"/{varName}/create/\", (request) =>");
-                AppendLine("{");
-                TabIn();
-                CheckPermissions(varName, "0", "Create");
+                if (!isAbstract)
+                {
+                    AppendLine();
+                    AppendLine($"this.Post(\"/{varName}/create/\", (request) =>");
+                    AppendLine("{");
+                    TabIn();
+                    CheckPermissions(varName, "0", "Create");
 
-                string fields = GetExpandedFields(entity);
-                AppendLine($"var {varName} = Database.Create{entity.Name}({fields});");
-                AppendLine($"if ({varName}  == null)");
-                AppendLine("{");
-                AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
-                AppendLine("}");
-                AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
-                TabOut();
-                AppendLine("});");
+                    string fields = GetExpandedFields(entity);
+                    AppendLine($"var {varName} = Database.Create{entity.Name}({fields});");
+                    AppendLine($"if ({varName}  == null)");
+                    AppendLine("{");
+                    AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
+                    AppendLine("}");
+                    AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
+                    TabOut();
+                    AppendLine("});");
+            
 
-                AppendLine();
-                AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
-                AppendLine("{");
-                TabIn();
-                ReadRequestVariable("id", "UInt64");
-                CheckPermissions(varName, "id", "Delete");
-                AppendLine($"var result = Database.Delete{entity.Name}(id);");
-                AppendLine($"return result.ToString();");
-                TabOut();
-                AppendLine("});");
+                    AppendLine();
+                    AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
+                    AppendLine("{");
+                    TabIn();
+                    ReadRequestVariable(idName, "UInt64");
+                    CheckPermissions(varName, idName, "Delete");
+                    AppendLine($"var result = Database.Delete{entity.Name}({idName});");
+                    AppendLine($"return Response(result.ToString());");
+                    TabOut();
+                    AppendLine("});");
+                }
 
                 AppendLine();
                 AppendLine($"this.Post(\"/{varName}/count/\", (request) =>");
@@ -1191,92 +1271,84 @@ namespace LunarModel
                 TabOut();
                 AppendLine("});");
 
-                AppendLine();
-                AppendLine($"this.Post(\"/{varName}/list\", (request) =>");
-                AppendLine("{");
-                TabIn();
-                CheckPermissions(varName, "0", "List");
-                ReadRequestVariable("page", "int");
-                ReadRequestVariable("count", "int");
-                AppendLine($"var items = Database.List{entity.Name.Pluralize()}(page, count);");
-                AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
-                AppendLine("var result = DataNode.CreateObject(\"response\");");
-                AppendLine("result.AddField(\"page\", page);");
-                AppendLine("result.AddNode(array);");
-                AppendLine("return result;");
-                TabOut();
-                AppendLine("});");
-
-                AppendLine();
-                AppendLine($"this.Post(\"/{varName}/find\", (request) =>");
-                AppendLine("{");
-                TabIn();
-                CheckPermissions(varName, "0", "List");
-                ReadRequestVariable("IDs", "string");
-                AppendLine($"var items = IDs.Split('|').Select(x => UInt64.Parse(x)).Select(x => Database.Find{entity.Name}ByID(x)).ToArray();");
-                AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
-                AppendLine("var result = DataNode.CreateObject(\"response\");");
-                AppendLine("result.AddNode(array);");
-                AppendLine("return result;");
-                TabOut();
-                AppendLine("});");
-
-                AppendLine();
-                AppendLine($"this.Post(\"/{varName}/edit/\", (request) =>");
-                AppendLine("{");
-                TabIn();
-
-                ReadRequestVariable("id", "UInt64");
-                ReadRequestVariable("fields", "string");
-                ReadRequestVariable("values", "string");
-                CheckPermissions(varName, "id", "Write");
-                AppendLine($"var {varName} = Database.Find{entity.Name}ByID(id);");
-
-                AppendLine($"var fieldEntries = fields.Split('|');");
-                AppendLine($"var valuesEntries = values.Split('|');");
-                AppendLine($"if (fieldEntries.Length != valuesEntries.Length)");
-                AppendLine("{");
-                AppendLine("\treturn Error(\"Field and values dont match\");");
-                AppendLine("}");
-                AppendLine();
-
-                AppendLine($"for (int i=0; i<fieldEntries.Length; i++)");
-                AppendLine("{");
-                TabIn();
-
-                AppendLine("var field = fieldEntries[i];");
-                AppendLine("var value = valuesEntries[i];");
-                AppendLine($"switch (field)");
-                AppendLine("{");
-                TabIn();
-                foreach (var field in entity.Fields)
+                if (!isAbstract)
                 {
-                    if (!field.Flags.HasFlag(FieldFlags.Editable))
-                    {
-                        continue;
-                    }
-
-                    var entry = entity.Decls[field];
-
-                    AppendLine($"case \"{entry.Name}\":");
-                    TabIn();
-                    ParseVariable("value", $"{varName}.{entry.Name}", entry.Type, true);
-                    AppendLine($"break;");
                     AppendLine();
+                    AppendLine($"this.Post(\"/{varName}/list\", (request) =>");
+                    AppendLine("{");
+                    TabIn();
+                    CheckPermissions(varName, "0", "List");
+                    ReadRequestVariable("page", "int");
+                    ReadRequestVariable("count", "int");
+                    AppendLine($"var items = Database.List{entity.Name.Pluralize()}(page, count);");
+                    AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
+                    AppendLine("var result = DataNode.CreateObject(\"response\");");
+                    AppendLine("result.AddField(\"page\", page);");
+                    AppendLine("result.AddNode(array);");
+                    AppendLine("return result;");
                     TabOut();
+                    AppendLine("});");
+
+                    AppendLine();
+                    AppendLine($"this.Post(\"/{varName}/find\", (request) =>");
+                    AppendLine("{");
+                    TabIn();
+                    CheckPermissions(varName, "0", "List");
+                    ReadRequestVariable("IDs", "string");
+                    AppendLine($"var items = IDs.Split('|').Select(x => UInt64.Parse(x)).Select(x => Database.Find{entity.Name}ByID(x)).ToArray();");
+                    AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
+                    AppendLine("var result = DataNode.CreateObject(\"response\");");
+                    AppendLine("result.AddNode(array);");
+                    AppendLine("return result;");
+                    TabOut();
+                    AppendLine("});");
                 }
 
-                AppendLine("default:");
-                AppendLine("\treturn Error(\"Invalid field: \" + field);");
-                TabOut();
-                AppendLine("}");
+                if (entity.HasEditableFields())
+                {
+                    AppendLine();
+                    AppendLine($"this.Post(\"/{varName}/edit/\", (request) =>");
+                    AppendLine("{");
+                    TabIn();
 
-                TabOut();
-                AppendLine("}");
+                    ReadRequestVariable(idName, "UInt64");
+                    ReadRequestVariable("fields", "string");
+                    ReadRequestVariable("values", "string");
+                    CheckPermissions(varName, idName, "Write");
+                    AppendLine($"var {varName} = Database.Find{entity.Name}ByID({idName});");
 
-                AppendLine($"return \"true\";");
-                TabOut();
-                AppendLine("});");
+                    AppendLine($"var fieldEntries = fields.Split('|');");
+                    AppendLine($"var valuesEntries = values.Split('|');");
+                    AppendLine($"if (fieldEntries.Length != valuesEntries.Length)");
+                    AppendLine("{");
+                    AppendLine("\treturn Error(\"Field and values dont match\");");
+                    AppendLine("}");
+                    AppendLine();
+
+                    AppendLine($"for (int i=0; i<fieldEntries.Length; i++)");
+                    AppendLine("{");
+                    TabIn();
+
+                    AppendLine("var field = fieldEntries[i];");
+                    AppendLine("var value = valuesEntries[i];");
+                    AppendLine($"switch (field)");
+                    AppendLine("{");
+                    TabIn();
+
+                    AppendEditableFields(entity, varName);
+
+                    AppendLine("default:");
+                    AppendLine("\treturn Error(\"Invalid field: \" + field);");
+                    TabOut();
+                    AppendLine("}");
+
+                    TabOut();
+                    AppendLine("}");
+
+                    AppendLine($"return Response(\"true\");");
+                    TabOut();
+                    AppendLine("});");
+                }
 
                 var refs = GetReferences(entity);
                 if (refs.Any())
@@ -1290,7 +1362,6 @@ namespace LunarModel
                         AppendLine($"this.Post(\"/{varName}/{reference.Name.CapLower().Pluralize()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                        var idName = $"{entity.Name}ID";
                         ReadRequestVariable(idName, "UInt64");
                         CheckPermissions(varName, idName, "Read");
                         AppendLine($"var items = Database.{methodName}({idName});");

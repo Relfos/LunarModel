@@ -63,7 +63,10 @@ namespace LunarModel.Generators
 
         public override void Create(Model model,Entity entity, string varName)
         {
-            model.AppendLine($"\t\t\t{varName}.ID = (UInt64)({_mapNames[entity]}.Count + 1);");
+            if (entity.Parent == null)
+            {
+                model.AppendLine($"\t\t\t{varName}.ID = (UInt64)({_mapNames[entity]}.Count + 1);");
+            }
             InitDecls(model, entity, varName, false);
             model.AppendLine($"\t\t\t{_mapNames[entity]}[{varName}.ID] = {varName};");
             model.AppendLine($"\t\t\treturn {varName};");
