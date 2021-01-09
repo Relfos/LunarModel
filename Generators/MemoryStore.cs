@@ -27,9 +27,16 @@ namespace LunarModel.Generators
             }
         }
 
-        public override void Aggregate(Model model, Entity source, Entity target, string fieldName)
+        public override void Aggregate(Model model, Entity source, Entity target, string fieldName, bool unique)
         {
-            model.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
+            if (unique)
+            {
+                model.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).FirstOrDefault();");
+            }
+            else
+            {
+                model.AppendLine($"\t\t\treturn {_mapNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
+            }
         }
 
         public override void List(Model model, Entity entity)

@@ -16,6 +16,7 @@ namespace LunarModel
         Hidden = 2,
         Searchable = 4,
         Internal = 8,
+        Unique = 16,
     }
 
     public class Field
@@ -103,7 +104,7 @@ namespace LunarModel
         public abstract void Find(Model model, Entity entity, string field);        
         public abstract void List(Model model, Entity entity);
         public abstract void Count(Model model, Entity entity);
-        public abstract void Aggregate(Model model, Entity source, Entity target, string fieldName);
+        public abstract void Aggregate(Model model, Entity source, Entity target, string fieldName, bool unique);
         public abstract void Edit(Model model, Entity entity, string idName);
     }
 
@@ -142,6 +143,11 @@ namespace LunarModel
             }
 
             return result;
+        }
+
+        private bool IsUniqueReference(Entity entity, Entity reference)
+        {
+            return reference.Fields.Any(x => x.Type == entity.Name && x.Flags.HasFlag(FieldFlags.Unique));
         }
 
         private bool IsAbstract(Entity entity)
@@ -387,6 +393,15 @@ namespace LunarModel
                 var varName = entity.Name.CapLower();
                 TabIn();
 
+                AppendLine($"var id = node.GetUInt64(\"id\");");
+                AppendLine($"if (id == 0)");
+                AppendLine("{");
+                TabIn();
+                AppendLine($"return null;");
+                TabOut();
+                AppendLine("}");
+                AppendLine();
+
                 if (IsAbstract(entity))
                 {
                     AppendLine($"var kind = node.GetEnum<{entity.KindEnumName}>(\"{entity.KindEnumName}\");");
@@ -413,7 +428,8 @@ namespace LunarModel
                 else
                 {
                     AppendLine($"var {varName} = new {entity.Name}();");
-                    AppendLine($"{varName}.ID = node.GetUInt64(\"id\");");
+                    AppendLine($"{varName}.ID = id;");
+
                     AppendFromNodeFields(entity, varName);
                     AppendLine($"return {varName};");
                 }
@@ -426,6 +442,16 @@ namespace LunarModel
                 AppendLine("{");
 
                 TabIn();
+
+                AppendLine($"if ({varName} == null)");
+                AppendLine("{");
+                TabIn();
+                AppendLine($"var temp = DataNode.CreateObject(\"{entity.Name}\");");
+                AppendLine($"temp .AddField(\"id\", 0);");
+                AppendLine($"return temp ;");
+                TabOut();
+                AppendLine("}");
+                AppendLine();
 
                 if (IsAbstract(entity))
                 {
@@ -583,17 +609,7 @@ namespace LunarModel
                 generator.Delete(this, entity);
                 AppendLine("}");
 
-                var searchableFields = new List<KeyValuePair<string, string>>();
-                searchableFields.Add(new KeyValuePair<string, string>("ID", "UInt64"));
-                foreach (var field in entity.Fields) 
-                {
-                    if (field.Flags.HasFlag(FieldFlags.Searchable))
-                    {
-                        var decl = entity.Decls[field];
-
-                        searchableFields.Add(new KeyValuePair<string, string>(field.Name, decl.Type));
-                    }
-                }
+                var searchableFields = GetSearchableFields(entity);
 
                 foreach (var field in searchableFields)
                 {
@@ -644,12 +660,20 @@ namespace LunarModel
                     {
                         var fieldName = $"{entity.Name.CapLower()}ID";
 
+                        bool isUnique = IsUniqueReference(entity, reference);
+
+                        var targetName = reference.Name;
+                        if (!isUnique)
+                        {
+                            targetName = targetName.Pluralize();
+                        }
+
                         AppendLine();
-                        var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
+                        var methodName = $"Get{targetName}Of{entity.Name}";
                         AppendLine();
-                        AppendLine($"public {reference.Name}[] {methodName}(UInt64 {fieldName})");
+                        AppendLine($"public {reference.Name}{(isUnique?"":"[]")} {methodName}(UInt64 {fieldName})");
                         AppendLine("{");
-                        generator.Aggregate(this, reference, entity, fieldName);
+                        generator.Aggregate(this, reference, entity, fieldName, isUnique);
                         AppendLine("}");
                     }
                 }
@@ -663,6 +687,25 @@ namespace LunarModel
             AppendLine("}");
 
             EndDoc("Database.cs");
+        }
+
+        private List<KeyValuePair<string, string>> GetSearchableFields(Entity entity)
+        {
+            var searchableFields = new List<KeyValuePair<string, string>>();
+            
+            searchableFields.Add(new KeyValuePair<string, string>("ID", "UInt64"));
+
+            foreach (var field in entity.Fields)
+            {
+                if (field.Flags.HasFlag(FieldFlags.Searchable))
+                {
+                    var decl = entity.Decls[field];
+
+                    searchableFields.Add(new KeyValuePair<string, string>(field.Name, decl.Type));
+                }
+            }
+
+            return searchableFields;
         }
 
         private void DoWebRequest(string url, IEnumerable<string> args, string nullValue, Action callback, bool requireAuthCheck = true)
@@ -724,6 +767,7 @@ namespace LunarModel
             BeginDoc();
 
             AppendLine($"using System;");
+            AppendLine($"using System.Linq;");
             AppendLine($"using System.Collections.Generic;");
             AppendLine($"using UnityEngine;");
             AppendLine();
@@ -780,6 +824,8 @@ namespace LunarModel
             foreach (var entity in this.Entities)
             {
                 BeginRegion(entity.Name);
+
+                var plural = entity.Name.Pluralize();
 
                 var fieldStr = "";
 
@@ -857,7 +903,7 @@ namespace LunarModel
                 }
 
                 AppendLine("");
-                AppendLine($"public void Count{entity.Name.Pluralize()}(Action<int, string> callback)");
+                AppendLine($"public void Count{plural}(Action<int, string> callback)");
                 AppendLine("{");
                 TabIn();
                 DoWebRequest($"'/{entity.Name.ToLower()}/count'", Enumerable.Empty<string>(), "-1", () => {
@@ -870,38 +916,67 @@ namespace LunarModel
                 if (!isAbstract)
                 {
                     AppendLine("");
-                    AppendLine($"public void List{entity.Name.Pluralize()}(int page, int count, Action<{entity.Name}[], string> callback)");
+                    AppendLine($"public void List{plural}(int page, int count, Action<{entity.Name}[], string> callback)");
                     AppendLine("{");
                     TabIn();
 
-                    var plural = entity.Name.CapLower().Pluralize();
-                    DoWebRequest($"'/{entity.Name.ToLower()}/list'", new[] { "page", "count" }, "null", () => {
-                        AppendLine($"var data = root[\"{plural}\"];");
-                        AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                    DoWebRequest($"'/{entity.Name.ToLower()}/list'", new[] { "page", "count" }, "null", () =>
+                    {
+                        AppendLine($"var data = root[\"{plural.CapLower()}\"];");
+                        AppendLine($"var {plural.CapLower()} = new {entity.Name}[data.ChildCount];");
                         AppendLine("for (int i=0; i<data.ChildCount; i++) {");
                         AppendLine("var child = data.GetNodeByIndex(i);");
-                        AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                        AppendLine($"{plural.CapLower()}[i] = {serializationClass}.{entity.Name}FromNode(child);");
                         AppendLine("}");
-                        AppendLine($"callback({plural}, null);");
+                        AppendLine($"callback({plural.CapLower()}, null);");
                     });
                     TabOut();
                     AppendLine("}");
+                }
+
+                var searchableFields = GetSearchableFields(entity);
+                foreach (var field in searchableFields)
+                {
+                    var keyName = field.Key;
+                    var keyType = field.Value;
+
+                    var pluralKeyName = keyName == "ID" ? "IDs" : keyName.Pluralize();
 
                     AppendLine("");
-                    AppendLine($"public void Find{entity.Name.Pluralize()}(IEnumerable<UInt64> {entity.Name}IDs, Action<{entity.Name}[], string> callback)");
+                    AppendLine($"public void Find{entity.Name}By{keyName}({keyType} {entity.Name.CapLower()}{keyName}, Action<{entity.Name}, string> callback)");
+                    AppendLine("{");
+                    TabIn();
+                    AppendLine("\tFind" + plural + "By"+keyName+"(new "+ keyType + "[]{ " + entity.Name.CapLower() + keyName+ " }, (" + plural.CapLower() + ", error) => {");
+                    AppendLine("\tcallback(" + plural.CapLower() + " != null && " + plural.CapLower() + ".Length > 0 ? " + plural.CapLower() + "[0] : null, error);");
+                    AppendLine("});");
+                    TabOut();
+                    AppendLine("}");
+
+                    var keySource = $"{entity.Name.CapLower()}{pluralKeyName}";
+                    AppendLine("");
+                    AppendLine($"public void Find{plural}By{keyName}(IEnumerable<{keyType}> {keySource}, Action<{entity.Name}[], string> callback)");
                     AppendLine("{");
                     TabIn();
 
+                    AppendLine($"if (!{entity.Name.CapLower()}{pluralKeyName}.Any())");
+                    AppendLine("{");
+                    TabIn();
+                    AppendLine("callback(new " + entity.Name + "[0]{}, null);");
+                    AppendLine("return;");
+                    TabOut();
+                    AppendLine("}");
+                    AppendLine();
+
                     var args = new Dictionary<string, string>();
-                    AppendLine($"var IDs = string.Join(\"|\", {entity.Name}IDs);");
-                    DoWebRequest($"'/{entity.Name.ToLower()}/find'", new[] { "IDs" }, "null", () => {
-                        AppendLine($"var data = root[\"{plural}\"];");
-                        AppendLine($"var {plural} = new {entity.Name}[data.ChildCount];");
+                    AppendLine($"var {pluralKeyName} = string.Join(\"|\", {entity.Name.CapLower()}{pluralKeyName});");
+                    DoWebRequest($"'/{entity.Name.ToLower()}/findBy{keyName}'", new[] { pluralKeyName }, "null", () => {
+                        AppendLine($"var data = root[\"{plural.CapLower()}\"];");
+                        AppendLine($"var {plural.CapLower()} = new {entity.Name}[data.ChildCount];");
                         AppendLine("for (int i=0; i<data.ChildCount; i++) {");
                         AppendLine("var child = data.GetNodeByIndex(i);");
-                        AppendLine($"{plural}[i] = {serializationClass}.{entity.Name}FromNode(child);");
+                        AppendLine($"{plural.CapLower()}[i] = {serializationClass}.{entity.Name}FromNode(child);");
                         AppendLine("}");
-                        AppendLine($"callback({plural}, null);");
+                        AppendLine($"callback({plural.CapLower()}, null);");
                     });
                     TabOut();
                     AppendLine("}");
@@ -928,25 +1003,60 @@ namespace LunarModel
                 {
                     foreach (var reference in refs)
                     {
+                        var isUnique = IsUniqueReference(entity, reference);
+
+                        var targetName = reference.Name;
+                        if (!isUnique)
+                        {
+                            targetName = targetName.Pluralize();
+                        }
+
+                        
                         var fieldName = $"{entity.Name.CapLower()}ID";
 
                         AppendLine("");
-                        var methodName = $"Get{reference.Name.Pluralize()}Of{entity.Name}";
+                        var methodName = $"Get{(isUnique ? reference.Name: reference.Name.Pluralize())}Of{entity.Name}";
                         AppendLine("");
-                        AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
+
+                        if (isUnique)
+                        {
+                            AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}, string> callback)");
+                        }
+                        else
+                        {
+                            AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
+                        }
+
                         AppendLine("{");
                         TabIn();
 
-                        var targetName = reference.Name.CapLower().Pluralize();
                         DoWebRequest($"'/{entity.Name.ToLower()}/{targetName.ToLower()}'", new[] { fieldName }, "null", () => {
-                            AppendLine($"var data = root[\"{targetName}\"];");
-                            AppendLine($"var {targetName} = new {reference.Name}[data.ChildCount];");
-                            AppendLine("for (int i=0; i<data.ChildCount; i++) {");
-                            TabIn();
-                            AppendLine("var child = data.GetNodeByIndex(i);");
-                            AppendLine($"{targetName}[i] = {serializationClass}.{reference.Name}FromNode(child);");
-                            TabOut();
-                            AppendLine("}");
+
+                            if (isUnique)
+                            {
+                                AppendLine($"var data = root[\"{targetName}\"];");
+                                AppendLine("if (data.Value == \"missing\")");
+                                AppendLine("{");
+                                TabIn();
+                                AppendLine($"callback(null, null);");
+                                TabOut();
+                                AppendLine("}");
+
+                                AppendLine($"var {targetName} = {serializationClass}.{reference.Name}FromNode(data);");
+                            }
+                            else
+                            {
+                                AppendLine($"var data = root[\"{targetName}\"];");
+                                AppendLine($"var {targetName} = new {reference.Name}[data.ChildCount];");
+                                AppendLine("for (int i=0; i<data.ChildCount; i++)");
+                                AppendLine("{");
+                                TabIn();
+                                AppendLine("var child = data.GetNodeByIndex(i);");
+                                AppendLine($"{targetName}[i] = {serializationClass}.{reference.Name}FromNode(child);");
+                                TabOut();
+                                AppendLine("}");
+                            }
+
                             AppendLine($"callback({targetName}, null);");
                         });
 
@@ -1288,14 +1398,26 @@ namespace LunarModel
                     AppendLine("return result;");
                     TabOut();
                     AppendLine("});");
+                }
+
+                var searchableFields = GetSearchableFields(entity);
+
+                foreach (var field in searchableFields)
+                {
+                    var keyName = field.Key;
+                    var keyType = field.Value;
+                    var pluralKeyName = keyName == "ID" ? "IDs" : keyName.Pluralize();
 
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/find\", (request) =>");
+                    AppendLine($"this.Post(\"/{varName}/findBy{keyName}\", (request) =>");
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "List");
-                    ReadRequestVariable("IDs", "string");
-                    AppendLine($"var items = IDs.Split('|').Select(x => UInt64.Parse(x)).Select(x => Database.Find{entity.Name}ByID(x)).ToArray();");
+                    ReadRequestVariable(pluralKeyName, "string");
+
+                    string filter = keyType.Equals("string", StringComparison.OrdinalIgnoreCase) ? "" : $"Select(x => {keyType}.Parse(x)).";
+
+                    AppendLine($"var items = {pluralKeyName}.Split('|').{filter}Select(x => Database.Find{entity.Name}By{keyName}(x)).ToArray();");
                     AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
                     AppendLine("var result = DataNode.CreateObject(\"response\");");
                     AppendLine("result.AddNode(array);");
@@ -1355,20 +1477,50 @@ namespace LunarModel
                 {
                     foreach (var reference in refs)
                     {
-                        var targets = reference.Name.Pluralize();
-                        var methodName = $"Get{targets}Of{entity.Name}";
+                        var isUnique = IsUniqueReference(entity, reference);
+
+                        var targetName = reference.Name;
+                        if (!isUnique)
+                        {
+                            targetName = targetName.Pluralize();
+                        }
+
+                        var methodName = $"Get{targetName}Of{entity.Name}";
 
                         AppendLine();
-                        AppendLine($"this.Post(\"/{varName}/{reference.Name.CapLower().Pluralize()}\",  (request) =>");
+                        AppendLine($"this.Post(\"/{varName}/{targetName.ToLower()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
                         ReadRequestVariable(idName, "UInt64");
                         CheckPermissions(varName, idName, "Read");
-                        AppendLine($"var items = Database.{methodName}({idName});");
-                        AppendLine("var array =  " + serializationClass + ".ToArray(\"" + targets + "\", items, " + serializationClass + "." + reference.Name + "ToNode);");
+
                         AppendLine("var result = DataNode.CreateObject(\"response\");");
-                        AppendLine("result.AddNode(array);");
+
+                        if (isUnique)
+                        {
+                            AppendLine($"var item = Database.{methodName}({idName});");
+                            AppendLine("if (item != null)");
+                            AppendLine("{");
+                            TabIn();
+                            AppendLine($"result.AddNode({serializationClass}.{reference.Name}ToNode(item));");
+                            TabOut();
+                            AppendLine("}");
+                            AppendLine("else");
+                            AppendLine("{");
+                            TabIn();
+                            AppendLine("result.AddField(\""+reference.Name+"\", \"none\");");
+                            TabOut();
+                            AppendLine("}");
+                        }
+                        else
+                        {
+                            AppendLine($"var items = Database.{methodName}({idName});");
+                            AppendLine("var array =  " + serializationClass + ".ToArray(\"" + targetName + "\", items, " + serializationClass + "." + reference.Name + "ToNode);");
+                            AppendLine("result.AddNode(array);");
+                        }
+
                         AppendLine("return result;");
+
                         TabOut();
                         AppendLine("});");
                     }
