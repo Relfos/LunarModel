@@ -852,14 +852,27 @@ namespace LunarModel
 
                 if (!isAbstract)
                 {
+                    var fieldArgs = new StringBuilder();
+                    var fieldList = new List<string>();
+                    foreach (var field in entity.Fields)
+                    {
+                        var decl = entity.Decls[field];
+
+                        fieldArgs.Append(decl.Type);
+                        fieldArgs.Append(' ');
+                        fieldArgs.Append(decl.Name);
+                        fieldArgs.Append(',');
+                        fieldArgs.Append(' ');
+
+                        fieldList.Add(decl.Name);
+                    }
+
                     AppendLine();
-                    AppendLine($"public void Create{entity.Name}(Action<{entity.Name}, string> callback)");
+                    AppendLine($"public void Create{entity.Name}({fieldArgs}Action<{entity.Name}, string> callback)");
                     AppendLine("{");
                     TabIn();
 
-                    var fields = new List<string>();
-
-                    DoWebRequest($"'/{entity.Name.ToLower()}/create'", fields, "null", () => {
+                    DoWebRequest($"'/{entity.Name.ToLower()}/create'", fieldList, "null", () => {
                         AppendLine($"var data = root[\"{entity.Name.CapLower()}\"];");
                         AppendLine($"var {entity.Name.CapLower()} = {serializationClass}.{entity.Name}FromNode(data);");
                         AppendLine($"callback({entity.Name.CapLower()}, null);");
@@ -1353,11 +1366,12 @@ namespace LunarModel
                     AppendLine("{");
                     AppendLine($"\treturn Error(\"{entity.Name} creation failed\");");
                     AppendLine("}");
-                    AppendLine($"return {serializationClass}.{entity.Name}ToNode({varName});");
+                    AppendLine("var result = DataNode.CreateObject(\"response\");");
+                    AppendLine($"result.AddNode({serializationClass}.{entity.Name}ToNode({varName}));");
+                    AppendLine("return result;");
                     TabOut();
                     AppendLine("});");
             
-
                     AppendLine();
                     AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
                     AppendLine("{");
