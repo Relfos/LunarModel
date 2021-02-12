@@ -783,7 +783,7 @@ namespace LunarModel
             AppendLine();
             TabIn();
 
-            AppendLine($"public string URL = \"http://localhost\";");
+            AppendLine($"public string URL = \"http://localhost/api\";");
             AppendLine("public User User { get; private set;}");
             AppendLine();
             AppendLine("public string AuthToken { get; private set; }");
@@ -1283,12 +1283,22 @@ namespace LunarModel
             AppendLine();
             AppendLine($"private Dictionary<string, User> _auths = new Dictionary<string, User>();");
             AppendLine("private readonly Random _random = new Random();");
+            AppendLine("public readonly string Prefix;");
 
             AppendLine();
-            AppendLine($"public {serverClass}({databaseClass} database, ServerSettings settings, LoggerCallback log = null, SessionStorage sessionStorage = null): base(settings, log, sessionStorage)");
+            AppendLine($"public {serverClass}({databaseClass} database, ServerSettings settings, string prefix = \"api\", LoggerCallback log = null, SessionStorage sessionStorage = null): base(settings, log, sessionStorage)");
             AppendLine("{");
             TabIn();
 
+            AppendLine("if (!prefix.StartsWith(\"/\"))");
+            AppendLine("{");
+            TabIn();
+            AppendLine("prefix = \"/\" + prefix;");
+            TabOut();
+            AppendLine("}");
+            AppendLine("this.Prefix = prefix;");
+
+            AppendLine();
             AppendLine("this.Database = database;");
 
             /*AppendLine();
@@ -1310,7 +1320,7 @@ namespace LunarModel
 
             AppendLine();
             BeginRegion("AUTH");
-            AppendLine($"this.Post(\"/login\", (request) =>");
+            AppendLine($"this.Post(Prefix + \"/login\", (request) =>");
             AppendLine("{");
             TabIn();
             AppendLine($"var creds = request.GetVariable(\"creds\");");
@@ -1355,7 +1365,7 @@ namespace LunarModel
                 if (!isAbstract)
                 {
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/create/\", (request) =>");
+                    AppendLine($"this.Post(Prefix + \"/{varName}/create/\", (request) =>");
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "Create");
@@ -1373,7 +1383,7 @@ namespace LunarModel
                     AppendLine("});");
             
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/delete/\", (request) =>");
+                    AppendLine($"this.Post(Prefix + \"/{varName}/delete/\", (request) =>");
                     AppendLine("{");
                     TabIn();
                     ReadRequestVariable(idName, "UInt64");
@@ -1385,7 +1395,7 @@ namespace LunarModel
                 }
 
                 AppendLine();
-                AppendLine($"this.Post(\"/{varName}/count/\", (request) =>");
+                AppendLine($"this.Post(Prefix + \"/{varName}/count/\", (request) =>");
                 AppendLine("{");
                 TabIn();
                 CheckPermissions(varName, "0", "List");
@@ -1398,7 +1408,7 @@ namespace LunarModel
                 if (!isAbstract)
                 {
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/list\", (request) =>");
+                    AppendLine($"this.Post(Prefix + \"/{varName}/list\", (request) =>");
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "List");
@@ -1423,7 +1433,7 @@ namespace LunarModel
                     var pluralKeyName = keyName == "ID" ? "IDs" : keyName.Pluralize();
 
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/findBy{keyName}\", (request) =>");
+                    AppendLine($"this.Post(Prefix + \"/{varName}/findBy{keyName}\", (request) =>");
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "List");
@@ -1443,7 +1453,7 @@ namespace LunarModel
                 if (entity.HasEditableFields())
                 {
                     AppendLine();
-                    AppendLine($"this.Post(\"/{varName}/edit/\", (request) =>");
+                    AppendLine($"this.Post(Prefix + \"/{varName}/edit/\", (request) =>");
                     AppendLine("{");
                     TabIn();
 
@@ -1502,7 +1512,7 @@ namespace LunarModel
                         var methodName = $"Get{targetName}Of{entity.Name}";
 
                         AppendLine();
-                        AppendLine($"this.Post(\"/{varName}/{targetName.ToLower()}\",  (request) =>");
+                        AppendLine($"this.Post(Prefix + \"/{varName}/{targetName.ToLower()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
                         ReadRequestVariable(idName, "UInt64");
