@@ -99,7 +99,7 @@ namespace LunarModel
         public readonly static string[] VarTypeNames = new string[]
         {
             "String",
-            "Bool",
+            "bool",
             "Decimal",
             "Int16",
             "UInt16",

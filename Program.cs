@@ -9,14 +9,17 @@ namespace LunarModel
         static void Main(string[] args)
         {
             Console.WriteLine("Generating model...");
-            var fileName = "stamps.txt";
+            var fileName = @"C:\code\Stamps\Model\stamps.txt";
             var src = File.ReadAllText(fileName);
 
             var compiler = new Compiler();
 
             var modelName = Path.GetFileNameWithoutExtension(fileName).CapUpper();
 
-            var model = compiler.Process(modelName, src, new MemoryStore());
+            //var generator = new MemoryStore();
+            var generator = new SQLStore();
+
+            var model = compiler.Process(modelName, src, generator);
 
             model.Generate();
         }

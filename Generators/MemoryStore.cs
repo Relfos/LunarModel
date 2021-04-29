@@ -21,9 +21,9 @@ namespace LunarModel.Generators
             foreach (var entity in entities)
             {
                 var decl = $"Dictionary<UInt64, {entity.Name}>";
-                var mapName = $"_{entity.Name.CapLower()}s";
+                var mapName = $"_{entity.Name.CapLower().Pluralize()}";
                 _mapNames[entity] = mapName;
-                model.AppendLine($"\t\tprivate {decl} {mapName} = new {decl}();");
+                model.AppendLine($"\tprivate {decl} {mapName} = new {decl}();");
             }
         }
 
@@ -59,6 +59,11 @@ namespace LunarModel.Generators
             foreach (var field in entity.Fields)
             {
                 if (skipInternals && field.Flags.HasFlag(FieldFlags.Internal))
+                {
+                    continue;
+                }
+
+                if (field.Flags.HasFlag(FieldFlags.Dynamic))
                 {
                     continue;
                 }
@@ -149,6 +154,7 @@ namespace LunarModel.Generators
                     {
                         model.AppendLine($"if (!{decl.Type}.TryParse(value, out {field.Name}))");
                     }
+
                     model.AppendLine("{");
                     model.AppendLine($"\treturn false;");
                     model.AppendLine("}");

@@ -10,4 +10,10 @@
     <PackageReference Include="Pluralize.NET" Version="1.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Generators\sql.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

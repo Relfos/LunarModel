@@ -17,6 +17,7 @@ namespace LunarModel
         Searchable = 4,
         Internal = 8,
         Unique = 16,
+        Dynamic = 32,
     }
 
     public class Field
@@ -150,9 +151,19 @@ namespace LunarModel
             return reference.Fields.Any(x => x.Type == entity.Name && x.Flags.HasFlag(FieldFlags.Unique));
         }
 
-        private bool IsAbstract(Entity entity)
+        internal bool IsAbstract(Entity entity)
         {
             return (Entities.Any(x => x.Parent == entity));
+        }
+
+        internal bool IsEnum(FieldDecl decl)
+        {
+            return Enums.Any(x => x.Name == decl.Type);
+        }
+
+        internal bool IsEntity(FieldDecl decl)
+        {
+            return Entities.Any(x => x.Name == decl.Type);
         }
 
         public void Generate()
@@ -290,7 +301,14 @@ namespace LunarModel
                     var decl = new FieldDecl(name, type);
                     entity.Decls[field] = decl;
 
-                    AppendLine($"\tpublic {type} {name} " + " { get; internal set;}");
+                    string accessor = "";
+
+                    if (!field.Flags.HasFlag(FieldFlags.Dynamic))
+                    {
+                        accessor = "internal ";
+                    }
+
+                    AppendLine($"\tpublic {type} {name} " + " { get; "+ accessor + "set;}");
                 }
 
                 AppendLine("}");
@@ -339,7 +357,7 @@ namespace LunarModel
 
                 string getStr;
 
-                if (Enums.Any(x => x.Name == decl.Type))
+                if (IsEnum(decl))
                 {
                     getStr = $"Enum<{decl.Type.CapUpper()}>";
                 }
@@ -505,6 +523,11 @@ namespace LunarModel
             foreach (var field in entity.Fields)
             {
                 if (skip && field.Flags.HasFlag(FieldFlags.Internal))
+                {
+                    continue;
+                }
+
+                if (field.Flags.HasFlag(FieldFlags.Dynamic))
                 {
                     continue;
                 }
@@ -1232,6 +1255,11 @@ namespace LunarModel
             }
         }
 
+        public bool HasDynamicFields(Entity entity)
+        {
+            return entity.Fields.Any(x => x.Flags.HasFlag(FieldFlags.Dynamic));
+        }
+
         private void GenerateServer()
         {
             BeginDoc();
@@ -1441,7 +1469,14 @@ namespace LunarModel
 
                     string filter = keyType.Equals("string", StringComparison.OrdinalIgnoreCase) ? "" : $"Select(x => {keyType}.Parse(x)).";
 
-                    AppendLine($"var items = {pluralKeyName}.Split('|').{filter}Select(x => Database.Find{entity.Name}By{keyName}(x)).ToArray();");
+                    string processor = "";
+
+                    if (HasDynamicFields(entity))
+                    {
+                        processor = $".Select(x => Process{entity.Name}(x))";
+                    }
+
+                    AppendLine($"var items = {pluralKeyName}.Split('|').{filter}Select(x => Database.Find{entity.Name}By{keyName}(x)){processor}.ToArray();");
                     AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
                     AppendLine("var result = DataNode.CreateObject(\"response\");");
                     AppendLine("result.AddNode(array);");
@@ -1462,6 +1497,11 @@ namespace LunarModel
                     ReadRequestVariable("values", "string");
                     CheckPermissions(varName, idName, "Write");
                     AppendLine($"var {varName} = Database.Find{entity.Name}ByID({idName});");
+
+                    if (HasDynamicFields(entity))
+                    {
+                        AppendLine($"{varName} = Process{entity.Name}({varName});");
+                    }
 
                     AppendLine($"var fieldEntries = fields.Split('|');");
                     AppendLine($"var valuesEntries = values.Split('|');");
@@ -1593,6 +1633,14 @@ namespace LunarModel
             AppendLine();
             AppendLine("public abstract User Authenticate(string creds, out string error);");
             AppendLine("public abstract Permissions GetPermissions(User user, UInt64 targetID, string scheme);");
+
+            foreach (var entity in Entities)
+            {
+                if (HasDynamicFields(entity))
+                {
+                    AppendLine($"public abstract {entity.Name} Process{entity.Name}({entity.Name} entity);");
+                }
+            }
 
             AppendLine("}");
             TabOut();

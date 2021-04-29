@@ -1,0 +1,193 @@
+		private bool TableExists(string table) 
+		{
+			using (var connection = new SQLiteConnection(this.connectionString))
+			{
+				connection.Open();
+				var command = connection.CreateCommand();
+				command.CommandText = $"SELECT * from {table} LIMIT 1";
+				try {
+					using (var reader = command.ExecuteReader()) 
+					{
+						return true;
+					}
+				}
+				catch (Exception e) 
+				{
+					return false;
+				}
+			}
+		}
+
+		private bool CreateTable(string table, string fields) 
+		{
+			using (var connection = new SQLiteConnection(this.connectionString)) 
+			{
+				connection.Open();
+
+				var command = connection.CreateCommand();
+				command.CommandText = $"CREATE TABLE {table}({fields})";
+
+				try {
+					command.ExecuteNonQuery();
+					return true;
+				}
+				catch (Exception e) 
+				{
+					return false;
+				}
+			}
+		}
+
+		private string ConvertVal(object val)
+		{
+			var type = val.GetType();
+
+			if (type == typeof(string)) 
+			{
+				return($"'{val}'");
+			}
+			
+			if (type == typeof(int) || type == typeof(long) || type == typeof(uint) || type == typeof(ulong))
+			{
+				return val.ToString();
+			}
+			
+			if (type == typeof(float) || type == typeof(double) || type == typeof(decimal))
+			{
+				return val.ToString();
+			}
+									
+			if (type.IsEnum) 
+			{
+				int temp = (int)Convert.ChangeType(val, typeof(int));
+				return temp.ToString();
+			}
+
+			if (type == typeof(bool)) 
+			{
+				return ((bool)val) ? "true" : "false";
+			}
+
+			throw new Exception("unsupport type");
+		}
+		
+		private bool DeleteRow(string table, string field, object value) {
+			throw new NotImplementedException();
+		}
+
+		private ulong InsertRow(string table, Dictionary<string, object> entries) 
+		{
+			var fields = string.Join(",", entries.Keys);
+
+			var sb = new StringBuilder();
+			foreach (var val in entries.Values) 
+			{
+				if (sb.Length > 0)
+				{
+					sb.Append(',');
+				}
+
+				sb.Append(ConvertVal(val));
+			}
+			var values = sb.ToString();
+
+			using (var connection = new SQLiteConnection(this.connectionString)) 
+			{
+				connection.Open();
+
+				var command = connection.CreateCommand();
+				command.CommandText = $"INSERT INTO {table} ({fields}) VALUES ({values})";
+
+				try
+				{
+					command.ExecuteNonQuery();                    
+					return (ulong)connection.LastInsertRowId;
+				}
+				catch (Exception e)
+				{
+					return 0;
+				}
+			}
+		}
+
+		public bool UpdateRow(string table, ulong id, string field, object val)
+        {
+			using (var connection = new SQLiteConnection(this.connectionString))
+			{
+				connection.Open();
+				var command = connection.CreateCommand();
+				command.CommandText = $"UPDATE {table} SET {field}={val} WHERE id={id}";
+				command.ExecuteNonQuery();
+			}
+			
+			return true;
+        }
+
+		public bool ReadRow(string table, string join, string field, object val, Action<SQLiteDataReader> callback)
+        {
+			return ReadRows(table, 1, 0, join, field, val, callback);
+        }
+
+		public bool ReadRows(string table, int limit, int offset, string join, string field, object val, Action<SQLiteDataReader> callback)
+		{
+			var temp = ConvertVal(val);
+			string clause = "";
+
+			if (join != null)
+			{
+				clause = $"AND {table}.id = {join}.id";
+				if (field != null)
+				{
+					field = table + "." + field;
+				}
+				table = $"{join},{table}";			
+			}
+			
+			if (field != null) 
+			{
+				clause += " WHERE {field} = {temp} ";
+			}
+
+			if (limit > 0)
+            {
+				clause += $" LIMIT {limit}";
+			}
+
+			if (offset > 0)
+            {
+				clause += $" OFFSET {offset}";
+			}
+
+			int count = 0;
+
+			using (var connection = new SQLiteConnection(this.connectionString))
+			{
+				connection.Open();
+				var command = connection.CreateCommand();
+				command.CommandText = $"SELECT * FROM {table} {clause}";
+
+				using (var reader = command.ExecuteReader())
+				{
+					while (reader.Read())
+					{
+						callback(reader);
+						count++;
+					}
+				}
+			}
+
+			return count > 0;
+		}
+		
+		public ulong TableCount(string table) 
+		{
+			using (var connection = new SQLiteConnection(this.connectionString))
+			{
+				connection.Open();                
+				var command = connection.CreateCommand();
+				command.CommandText = $"SELECT COUNT(*) FROM {table}";
+
+				var result = (ulong)command.ExecuteScalar();
+				return result;
+			}
+		}		
