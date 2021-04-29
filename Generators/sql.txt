@@ -40,6 +40,10 @@
 
 		private string ConvertVal(object val)
 		{
+			if (val == null) {
+				return null;
+			}
+		
 			var type = val.GetType();
 
 			if (type == typeof(string)) 
@@ -112,6 +116,8 @@
 
 		public bool UpdateRow(string table, ulong id, string field, object val)
         {
+			val = ConvertVal(val);
+
 			using (var connection = new SQLiteConnection(this.connectionString))
 			{
 				connection.Open();
@@ -130,24 +136,32 @@
 
 		public bool ReadRows(string table, int limit, int offset, string join, string field, object val, Action<SQLiteDataReader> callback)
 		{
-			var temp = ConvertVal(val);
+			val = ConvertVal(val);
 			string clause = "";
 
-			if (join != null)
+			if (field != null) 
 			{
-				clause = $"AND {table}.id = {join}.id";
-				if (field != null)
+				if (join != null)
 				{
 					field = table + "." + field;
 				}
+				
+				clause += $" WHERE {field} = {val} ";
+			}
+
+			if (join != null)
+			{
+				if (field == null) {
+					clause +=" WHERE ";
+				}
+				else {
+					clause +=" AND ";
+				}
+				
+				clause += $"{table}.id = {join}.id";
 				table = $"{join},{table}";			
 			}
 			
-			if (field != null) 
-			{
-				clause += " WHERE {field} = {temp} ";
-			}
-
 			if (limit > 0)
             {
 				clause += $" LIMIT {limit}";
@@ -179,7 +193,7 @@
 			return count > 0;
 		}
 		
-		public ulong TableCount(string table) 
+		public uint TableCount(string table) 
 		{
 			using (var connection = new SQLiteConnection(this.connectionString))
 			{
@@ -187,7 +201,8 @@
 				var command = connection.CreateCommand();
 				command.CommandText = $"SELECT COUNT(*) FROM {table}";
 
-				var result = (ulong)command.ExecuteScalar();
+				var count = (Int64) command.ExecuteScalar();
+				var result = (uint)count;
 				return result;
 			}
 		}		

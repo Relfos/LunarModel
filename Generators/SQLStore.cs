@@ -34,6 +34,11 @@ namespace LunarModel.Generators
                 var fields = "";
                 foreach (var field in entity.Fields)
                 {
+                    if (field.Flags.HasFlag(FieldFlags.Dynamic))
+                    {
+                        continue;
+                    }
+
                     if (fields.Length > 0)
                     {
                         fields += ", ";
@@ -134,6 +139,8 @@ namespace LunarModel.Generators
                 //model.AppendLine($"\t\t\t//return {_tableNames[source]}.Values.Where(x => x.{fieldName} == {fieldName}).ToArray();");
                 model.AppendLine($"return {varName.Pluralize()}.ToArray();");
             }
+
+            model.TabOut();
         }
 
         private void ReadFieldsFromReader(Model model, Entity entity, string varName, ref int index)
@@ -147,11 +154,17 @@ namespace LunarModel.Generators
             if (entity.Parent != null)
             {
                 ReadFieldsFromReader(model, entity.Parent, varName, ref index);
+                index++; // skip ID for sub-table
             }
 
             model.AppendLine($"\t// Reading {entity.Name} fields");
             foreach (var entry in entity.Fields)
             {
+                if (entry.Flags.HasFlag(FieldFlags.Dynamic))
+                {
+                    continue;
+                }
+
                 var decl = entity.Decls[entry];
 
                 if (model.IsEnum(decl))
@@ -268,20 +281,62 @@ namespace LunarModel.Generators
                 
             var varName = entity.Name.CapLower();
 
-            model.AppendLine($"var {varName} = new {entity.Name}();");
-            model.AppendLine($"ReadRow(\"{_tableNames[entity]}\", null, \"{field}\", {field}, (reader) =>");
+            string join = entity.Parent != null ? $"\"{_tableNames[entity.Parent]}\"" : "null";
+
+            model.AppendLine($"{entity.Name} {varName} = null;");
+            model.AppendLine($"ReadRow(\"{_tableNames[entity]}\", {join}, \"{field}\", {field}, (reader) =>");
             model.AppendLine("{");
+            model.TabIn();
+            model.AppendLine($"{varName} = new {entity.Name}();");
+
             int index = 0;
-            ReadFieldsFromReader(model, entity, varName, ref index);
+
+            if (model.IsAbstract(entity))
+            {
+                var enumName = entity.Name + "Kind";
+
+                model.AppendLine($"var ID = (ulong)reader.GetInt64(0);");
+                model.AppendLine($"{varName}.{enumName} = ({enumName})reader.GetInt32(1);");
+                model.AppendLine($"switch ({varName}.{enumName})");
+                model.AppendLine("{");
+                model.TabIn();
+
+                Enumerate kind = null;
+
+                foreach (var entry in model.Enums)
+                {
+                    if (entry.Name == enumName)
+                    {
+                        kind = entry;
+                    }
+                }
+
+                foreach (var entry in kind.Values)
+                {
+                    model.AppendLine($"case {enumName}.{entry}:");
+                    model.AppendLine($"\t{varName} = Find{entry}ByID(ID);");
+                    model.AppendLine("\tbreak;");
+                    model.AppendLine();
+                }
+
+                model.TabOut();
+                model.AppendLine("}");
+            }
+            else
+            {
+                ReadFieldsFromReader(model, entity, varName, ref index);
+            }
+
+            model.TabOut();
             model.AppendLine("});");
 
             model.AppendLine($"return {varName};");
         }
 
 
-        public override void Edit(Model model, Entity entity, string idName)
+        public override void Edit(Model model, Entity entity, string varName)
         {
-            var varName = entity.Name.CapLower();
+            var idName = varName + ".ID";
 
             model.AppendLine("object obj;");
 
@@ -303,6 +358,7 @@ namespace LunarModel.Generators
 
                 if (decl.Type.Equals("string", StringComparison.OrdinalIgnoreCase))
                 {
+                    model.AppendLine($"{varName}.{field.Name} = value;");
                     model.AppendLine($"obj = value;");
                 }
                 else
@@ -322,6 +378,7 @@ namespace LunarModel.Generators
                     model.AppendLine($"\treturn false;");
                     model.AppendLine("}");
 
+                    model.AppendLine($"{varName}.{field.Name} = {field.Name};");
                     model.AppendLine($"obj = {field.Name};");
                 }
 

@@ -106,7 +106,7 @@ namespace LunarModel
         public abstract void List(Model model, Entity entity);
         public abstract void Count(Model model, Entity entity);
         public abstract void Aggregate(Model model, Entity source, Entity target, string fieldName, bool unique);
-        public abstract void Edit(Model model, Entity entity, string idName);
+        public abstract void Edit(Model model, Entity entity, string varName);
     }
 
     public class Model
@@ -668,10 +668,9 @@ namespace LunarModel
                 if (entity.Fields.Any(x => x.Flags.HasFlag(FieldFlags.Editable)))
                 {
                     AppendLine("");
-                    var idName = $"{entity.Name.CapLower()}ID";
-                    AppendLine($"public bool Edit{entity.Name}(UInt64 {idName}, string field, string value)");
+                    AppendLine($"public bool Edit{entity.Name}({entity.Name} {varName}, string field, string value)");
                     AppendLine("{");
-                    generator.Edit(this, entity, idName);
+                    generator.Edit(this, entity, varName);
                     AppendLine("}");
                 }
 
@@ -681,7 +680,8 @@ namespace LunarModel
                 {
                     foreach (var reference in refs)
                     {
-                        var fieldName = $"{entity.Name.CapLower()}ID";
+                        //var fieldName = $"{entity.Name.CapLower()}ID";
+                        var fieldName = "ID";
 
                         bool isUnique = IsUniqueReference(entity, reference);
 

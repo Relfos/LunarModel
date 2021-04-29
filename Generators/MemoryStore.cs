@@ -117,9 +117,9 @@ namespace LunarModel.Generators
         }
 
 
-        public override void Edit(Model model, Entity entity, string idName)
+        public override void Edit(Model model, Entity entity, string varName)
         {
-            var varName = entity.Name.CapLower();
+            var idName = varName + ".ID";
             model.AppendLine($"var {varName} = this.Find{entity.Name}ByID({idName});");
 
             model.AppendLine($"switch(field)");
