@@ -61,6 +61,8 @@ namespace LunarModel.Generators
 
                             case "bool": type = "boolean"; break;
 
+                            case "bytes": type = "blob"; break;
+
                             case "uint32":
                             case "uint64": 
                                 type = "integer"; break;
@@ -175,7 +177,7 @@ namespace LunarModel.Generators
                 {
                     string type;
 
-                    switch (decl.Type)
+                    switch (decl.Type.ToLower())
                     {
                         case "bool": type = "Boolean"; break;
                         default: type = decl.Type; break;
@@ -363,7 +365,7 @@ namespace LunarModel.Generators
                 }
                 else
                 {
-                    model.AppendLine($"{decl.Type} {field.Name};");
+                    model.AppendLine($"{decl.ExportType()} {field.Name};");
 
                     if (model.Enums.Any(x => x.Name == decl.Type))
                     {
@@ -371,7 +373,7 @@ namespace LunarModel.Generators
                     }
                     else
                     {
-                        model.AppendLine($"if (!{decl.Type}.TryParse(value, out {field.Name}))");
+                        model.AppendLine($"if (!{decl.ExportType()}.TryParse(value, out {field.Name}))");
                     }
 
                     model.AppendLine("{");

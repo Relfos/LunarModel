@@ -49,6 +49,16 @@ namespace LunarModel
             Name = name;
             Type = type;
         }
+
+        public string ExportType()
+        {
+            switch (Type.ToLower())
+            {
+                case "bool": return "bool"; 
+                case "bytes": return "byte[]";
+                default: return Type;
+            }
+        }
     }
 
     public class Entity
@@ -287,7 +297,9 @@ namespace LunarModel
                 {
                     string name, type;
 
-                    if (Entities.Any(x => x.Name == field.Type))
+                    bool isID = Entities.Any(x => x.Name == field.Type);
+
+                    if (isID)
                     {
                         name = field.Name.CapLower() + "ID";
                         type = "UInt64";
@@ -306,6 +318,11 @@ namespace LunarModel
                     if (!field.Flags.HasFlag(FieldFlags.Dynamic))
                     {
                         accessor = "internal ";
+                    }
+
+                    if (!isID)
+                    {
+                        type = decl.ExportType();
                     }
 
                     AppendLine($"\tpublic {type} {name} " + " { get; "+ accessor + "set;}");
@@ -541,7 +558,7 @@ namespace LunarModel
 
                 if (withTypes)
                 {
-                    result += $"{decl.Type} ";
+                    result += $"{decl.ExportType()} ";
                 }
 
                 result += $"{decl.Name.CapLower()}";
@@ -1214,6 +1231,11 @@ namespace LunarModel
                     continue;
                 }
 
+                if (field.Flags.HasFlag(FieldFlags.Dynamic))
+                {
+                    continue;
+                }
+
                 if (!string.IsNullOrEmpty(fields))
                 {
                     fields = fields + ", ";
@@ -1224,7 +1246,7 @@ namespace LunarModel
                 var fieldName = decl.Name.CapLower();
                 fields += fieldName;
 
-                ReadRequestVariable(fieldName, decl.Type);
+                ReadRequestVariable(fieldName, decl.ExportType());
             }
 
             return fields;
@@ -1244,11 +1266,11 @@ namespace LunarModel
                     continue;
                 }
 
-                var entry = entity.Decls[field];
+                var decl = entity.Decls[field];
 
-                AppendLine($"case \"{entry.Name}\":");
+                AppendLine($"case \"{decl.Name}\":");
                 TabIn();
-                ParseVariable("value", $"{varName}.{entry.Name}", entry.Type, true);
+                ParseVariable("value", $"{varName}.{decl.Name}", decl.ExportType(), true);
                 AppendLine($"break;");
                 AppendLine();
                 TabOut();
