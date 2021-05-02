@@ -1282,7 +1282,9 @@ namespace LunarModel
 
                 AppendLine($"case \"{decl.Name}\":");
                 TabIn();
-                ParseVariable("value", $"{varName}.{decl.Name}", decl.ExportType(), true);
+                AppendLine($"{decl.ExportType()} {decl.Name};");
+                ParseVariable("value", $"{decl.Name}", decl.ExportType(), false);
+                AppendLine($"Database.Edit{entity.Name}({varName}, \"{decl.Name}\", {decl.Name}.ToString());");
                 AppendLine($"break;");
                 AppendLine();
                 TabOut();

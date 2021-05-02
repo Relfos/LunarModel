@@ -134,7 +134,7 @@
 		}
 
 		public bool UpdateRow(string table, Int64 id, string field, object val)
-        {
+		{
 			val = ConvertVal(val);
 
 			using (var connection = new SQLiteConnection(this.connectionString))
@@ -142,52 +142,58 @@
 				connection.Open();
 				var command = connection.CreateCommand();
 				command.CommandText = $"UPDATE {table} SET \"{field}\"={val} WHERE id={id}";
-				command.ExecuteNonQuery();
+				try
+				{
+					command.ExecuteNonQuery();
+					return true;
+				}
+				catch (Exception e)
+				{
+					return false;
+				}
 			}
-			
-			return true;
-        }
+		}
 
-		public bool ReadRow(string table, string join, string field, object val, Action<SQLiteDataReader> callback)
-        {
-			return ReadRows(table, 1, 0, join, field, val, callback);
-        }
-
-		public bool ReadRows(string table, int limit, int offset, string join, string field, object val, Action<SQLiteDataReader> callback)
+		public bool ReadRow(string table, string joinTable, string joinField, string field, object val, Action<SQLiteDataReader> callback)
 		{
-			val = ConvertVal(val);
+			return ReadRows(table, 1, 0, joinTable, joinField, field, val, callback);
+		}
+
+		public bool ReadRows(string table, int limit, int offset, string joinTable, string joinField, string filterField, object filterValue, Action<SQLiteDataReader> callback)
+		{
+			filterValue = ConvertVal(filterValue);
 			string clause = "";
 
-			if (field != null) 
+			if (filterField != null) 
 			{
-				if (join != null)
+				if (joinTable != null)
 				{
-					field = table + "." + field;
+					filterField = table + "." + filterField;
 				}
 				
-				clause += $" WHERE {field} = {val} ";
+				clause += $" WHERE {filterField} = {filterValue} ";
 			}
 
-			if (join != null)
+			if (joinTable != null)
 			{
-				if (field == null) {
+				if (filterField == null) {
 					clause +=" WHERE ";
 				}
 				else {
 					clause +=" AND ";
 				}
 				
-				clause += $"{table}.id = {join}.id";
-				table = $"{join},{table}";			
+				clause += $"{table}.id = {joinTable}.{joinField}";
+				table = $"{joinTable},{table}";			
 			}
 			
 			if (limit > 0)
-            {
+			{
 				clause += $" LIMIT {limit}";
 			}
 
 			if (offset > 0)
-            {
+			{
 				clause += $" OFFSET {offset}";
 			}
 

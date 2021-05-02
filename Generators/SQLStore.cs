@@ -114,7 +114,7 @@ namespace LunarModel.Generators
             }
 
             model.TabIn();
-            model.AppendLine($"ReadRows(\"{_tableNames[target]}\", {limit}, 0, \"{_tableNames[source]}\", \"{fieldName}\", {fieldName}, (reader) =>");
+            model.AppendLine($"ReadRows(\"{_tableNames[target]}\", {limit}, 0, \"{_tableNames[source]}\", \"{target.Name}ID\", \"{fieldName}\", {fieldName}, (reader) =>");
             model.AppendLine("{");
 
             if (unique)
@@ -209,10 +209,12 @@ namespace LunarModel.Generators
 
             model.AppendLine($"\tvar {varName.Pluralize()} = new List<{entity.Name}>();");
 
-            string join = entity.Parent != null ? $"\"{_tableNames[entity.Parent]}\"" : "null";
+            string joinTable = entity.Parent != null ? $"\"{_tableNames[entity.Parent]}\"" : "null";
+            string joinField = entity.Parent != null ? "\"id\"" : "null";
+
 
             model.TabIn();
-            model.AppendLine($"ReadRows(\"{_tableNames[entity]}\", count, offset, {join}, null, null, (reader) =>");
+            model.AppendLine($"ReadRows(\"{_tableNames[entity]}\", count, offset, {joinTable}, {joinField}, null, null, (reader) =>");
             model.AppendLine("{");
             model.AppendLine($"\tvar {varName} = new {entity.Name}();");
             int index = 0;
@@ -296,10 +298,11 @@ namespace LunarModel.Generators
                 
             var varName = entity.Name.CapLower();
 
-            string join = entity.Parent != null ? $"\"{_tableNames[entity.Parent]}\"" : "null";
+            string joinTable = entity.Parent != null ? $"\"{_tableNames[entity.Parent]}\"" : "null";
+            string joinField = entity.Parent != null ? "\"id\"" : "null";
 
             model.AppendLine($"{entity.Name} {varName} = null;");
-            model.AppendLine($"ReadRow(\"{_tableNames[entity]}\", {join}, \"{field}\", {field}, (reader) =>");
+            model.AppendLine($"ReadRow(\"{_tableNames[entity]}\", {joinTable}, {joinField}, \"{field}\", {field}, (reader) =>");
             model.AppendLine("{");
             model.TabIn();
             model.AppendLine($"{varName} = new {entity.Name}();");
