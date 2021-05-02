@@ -898,7 +898,19 @@ namespace LunarModel
                     {
                         var decl = entity.Decls[field];
 
-                        fieldArgs.Append(decl.Type);
+                        string type;
+
+
+                        switch (decl.Type.ToLower())
+                        {
+                            case "bool": type = "bool"; break;
+
+                            default:
+                                type = decl.Type;
+                                break;
+                        }
+
+                        fieldArgs.Append(type);
                         fieldArgs.Append(' ');
                         fieldArgs.Append(decl.Name);
                         fieldArgs.Append(',');

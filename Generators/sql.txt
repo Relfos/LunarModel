@@ -75,8 +75,27 @@
 			throw new Exception("unsupport type");
 		}
 		
-		private bool DeleteRow(string table, string field, object value) {
-			throw new NotImplementedException();
+		private bool DeleteRow(string table, string field, object val)
+		{
+			val = ConvertVal(val);
+
+			using (var connection = new SQLiteConnection(this.connectionString))
+			{
+				connection.Open();
+
+				var command = connection.CreateCommand();
+				command.CommandText = $"DELETE FROM {table} WHERE \"{field}\" = {val}";
+
+				try
+				{
+					command.ExecuteNonQuery();
+					return true;
+				}
+				catch (Exception e)
+				{
+					return false;
+				}
+			}
 		}
 
 		private Int64 InsertRow(string table, Dictionary<string, object> entries) 
