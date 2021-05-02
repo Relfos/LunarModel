@@ -13,6 +13,7 @@ namespace LunarModel.Generators
         {
             model.AppendLine("using System.Collections.Generic;");
             model.AppendLine("using System.Data.SQLite;");
+            model.AppendLine("using System.Linq;");
             model.AppendLine("using System.Text;");
             model.AppendLine();
         }
@@ -63,14 +64,18 @@ namespace LunarModel.Generators
 
                             case "bytes": type = "blob"; break;
 
-                            case "uint32":
-                            case "uint64": 
+                            case "int32":
+                            case "int64":
                                 type = "integer"; break;
+
+                            case "uint32":
+                            case "uint64":
+                                type = "UNSIGNED integer"; break;
 
                             default: throw new Exception("Unsupport sql type: " + decl.Type);
                     }
 
-                    fields += $"\\\"{field.Name}\\\" {type}";
+                    fields += $"\\\"{decl.Name}\\\" {type}";
                 }
 
                 string auto = entity.Parent == null ? " AUTOINCREMENT" : "";
@@ -109,7 +114,7 @@ namespace LunarModel.Generators
             }
 
             model.TabIn();
-            model.AppendLine($"ReadRows(\"{_tableNames[source]}\", {limit}, 0, \"{_tableNames[target]}\", \"{fieldName}\", {fieldName}, (reader) =>");
+            model.AppendLine($"ReadRows(\"{_tableNames[target]}\", {limit}, 0, \"{_tableNames[source]}\", \"{fieldName}\", {fieldName}, (reader) =>");
             model.AppendLine("{");
 
             if (unique)
@@ -123,6 +128,7 @@ namespace LunarModel.Generators
 
             int index = 0;
             ReadFieldsFromReader(model, source, varName, ref index);
+            //ReadFieldsFromReader(model, target, varName, ref index, true);
 
             if (!unique)
             {
@@ -145,21 +151,25 @@ namespace LunarModel.Generators
             model.TabOut();
         }
 
-        private void ReadFieldsFromReader(Model model, Entity entity, string varName, ref int index)
+        private void ReadFieldsFromReader(Model model, Entity entity, string varName, ref int index, bool skipIndexOnly = false)
         {
             if (index == 0)
             {
-                model.AppendLine($"\t{varName}.ID = (ulong)reader.GetInt64(0);");
+                if (!skipIndexOnly) {
+                    model.AppendLine($"\t{varName}.ID = reader.GetInt64(0);");
+                }
                 index++;
             }
 
             if (entity.Parent != null)
             {
-                ReadFieldsFromReader(model, entity.Parent, varName, ref index);
+                ReadFieldsFromReader(model, entity.Parent, varName, ref index, skipIndexOnly);
                 index++; // skip ID for sub-table
             }
 
-            model.AppendLine($"\t// Reading {entity.Name} fields");
+            var action = skipIndexOnly ? "Skipping" : "Reading";
+
+            model.AppendLine($"\t// {action} {entity.Name} fields");
             foreach (var entry in entity.Fields)
             {
                 if (entry.Flags.HasFlag(FieldFlags.Dynamic))
@@ -167,23 +177,26 @@ namespace LunarModel.Generators
                     continue;
                 }
 
-                var decl = entity.Decls[entry];
-
-                if (model.IsEnum(decl))
+                if (!skipIndexOnly)
                 {
-                    model.AppendLine($"\t{varName}.{decl.Name} = ({decl.Type})reader.GetInt32({index});");
-                }
-                else
-                {
-                    string type;
+                    var decl = entity.Decls[entry];
 
-                    switch (decl.Type.ToLower())
+                    if (model.IsEnum(decl))
                     {
-                        case "bool": type = "Boolean"; break;
-                        default: type = decl.Type; break;
+                        model.AppendLine($"\t{varName}.{decl.Name} = ({decl.Type})reader.GetInt32({index});");
                     }
+                    else
+                    {
+                        string type;
 
-                    model.AppendLine($"\t{varName}.{decl.Name} = reader.Get{type}({index});");
+                        switch (decl.Type.ToLower())
+                        {
+                            case "bool": type = "Boolean"; break;
+                            default: type = decl.Type; break;
+                        }
+
+                        model.AppendLine($"\t{varName}.{decl.Name} = reader.Get{type}({index});");
+                    }
                 }
 
                 index++;
@@ -297,7 +310,7 @@ namespace LunarModel.Generators
             {
                 var enumName = entity.Name + "Kind";
 
-                model.AppendLine($"var ID = (ulong)reader.GetInt64(0);");
+                model.AppendLine($"var ID = reader.GetInt64(0);");
                 model.AppendLine($"{varName}.{enumName} = ({enumName})reader.GetInt32(1);");
                 model.AppendLine($"switch ({varName}.{enumName})");
                 model.AppendLine("{");
@@ -380,8 +393,14 @@ namespace LunarModel.Generators
                     model.AppendLine($"\treturn false;");
                     model.AppendLine("}");
 
-                    model.AppendLine($"{varName}.{field.Name} = {field.Name};");
+                    string output = decl.Name;
+
+                    model.AppendLine($"{varName}.{output} = {field.Name};");
                     model.AppendLine($"obj = {field.Name};");
+                    if (decl.Name != field.Name)
+                    {
+                        model.AppendLine($"field = \"{decl.Name}\";");
+                    }
                 }
 
                 model.AppendLine("break;");

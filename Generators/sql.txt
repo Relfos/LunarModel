@@ -79,9 +79,9 @@
 			throw new NotImplementedException();
 		}
 
-		private ulong InsertRow(string table, Dictionary<string, object> entries) 
+		private Int64 InsertRow(string table, Dictionary<string, object> entries) 
 		{
-			var fields = string.Join(",", entries.Keys);
+			var fields = string.Join(",", entries.Keys.Select(x => $"\"{x}\""));
 
 			var sb = new StringBuilder();
 			foreach (var val in entries.Values) 
@@ -105,7 +105,7 @@
 				try
 				{
 					command.ExecuteNonQuery();                    
-					return (ulong)connection.LastInsertRowId;
+					return (Int64)connection.LastInsertRowId;
 				}
 				catch (Exception e)
 				{
@@ -114,7 +114,7 @@
 			}
 		}
 
-		public bool UpdateRow(string table, ulong id, string field, object val)
+		public bool UpdateRow(string table, Int64 id, string field, object val)
         {
 			val = ConvertVal(val);
 
@@ -122,7 +122,7 @@
 			{
 				connection.Open();
 				var command = connection.CreateCommand();
-				command.CommandText = $"UPDATE {table} SET {field}={val} WHERE id={id}";
+				command.CommandText = $"UPDATE {table} SET \"{field}\"={val} WHERE id={id}";
 				command.ExecuteNonQuery();
 			}
 			

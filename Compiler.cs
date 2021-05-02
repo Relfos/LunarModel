@@ -356,10 +356,10 @@ namespace LunarModel
                                 ExpectToken(";");
 
 
-                                if ((fieldType is EntityDeclaration) && flags.HasFlag(FieldFlags.Editable))
+                                /*if ((fieldType is EntityDeclaration) && flags.HasFlag(FieldFlags.Editable))
                                 {
                                     throw new CompilerException($"field {fieldName} can't be editable");
-                                }
+                                }*/
 
                                 fields.Add(new EntityField(fieldName, fieldType, flags));
                             } while (true);

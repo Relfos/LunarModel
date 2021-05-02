@@ -265,8 +265,8 @@ namespace LunarModel
             AppendLine("public class Entity");
             AppendLine("{");
             TabIn();
-            AppendLine("public UInt64 ID { get; internal set;} ");
-            AppendLine($"public static implicit operator UInt64(Entity obj) => obj.ID;");
+            AppendLine("public Int64 ID { get; internal set;} ");
+            AppendLine($"public static implicit operator Int64(Entity obj) => obj.ID;");
             TabOut();
             AppendLine("}");
             TabOut();
@@ -302,7 +302,7 @@ namespace LunarModel
                     if (isID)
                     {
                         name = field.Name.CapLower() + "ID";
-                        type = "UInt64";
+                        type = "Int64";
                     }
                     else
                     {
@@ -428,7 +428,7 @@ namespace LunarModel
                 var varName = entity.Name.CapLower();
                 TabIn();
 
-                AppendLine($"var id = node.GetUInt64(\"id\");");
+                AppendLine($"var id = node.GetInt64(\"id\");");
                 AppendLine($"if (id == 0)");
                 AppendLine("{");
                 TabIn();
@@ -635,7 +635,7 @@ namespace LunarModel
                 AppendLine("}");
 
                 AppendLine("");
-                AppendLine($"{visibility} bool Delete{entity.Name}(UInt64 {entity.Name.CapLower()}ID)");
+                AppendLine($"{visibility} bool Delete{entity.Name}(Int64 {entity.Name.CapLower()}ID)");
                 AppendLine("{");
                 if (entity.Parent != null)
                 {
@@ -711,7 +711,7 @@ namespace LunarModel
                         AppendLine();
                         var methodName = $"Get{targetName}Of{entity.Name}";
                         AppendLine();
-                        AppendLine($"public {reference.Name}{(isUnique?"":"[]")} {methodName}(UInt64 {fieldName})");
+                        AppendLine($"public {reference.Name}{(isUnique?"":"[]")} {methodName}(Int64 {fieldName})");
                         AppendLine("{");
                         generator.Aggregate(this, reference, entity, fieldName, isUnique);
                         AppendLine("}");
@@ -733,7 +733,7 @@ namespace LunarModel
         {
             var searchableFields = new List<KeyValuePair<string, string>>();
             
-            searchableFields.Add(new KeyValuePair<string, string>("ID", "UInt64"));
+            searchableFields.Add(new KeyValuePair<string, string>("ID", "Int64"));
 
             foreach (var field in entity.Fields)
             {
@@ -921,7 +921,7 @@ namespace LunarModel
                     AppendLine("}");
 
                     AppendLine("");
-                    AppendLine($"public void Delete{entity.Name}(UInt64 {idName}, Action<bool, string> callback)");
+                    AppendLine($"public void Delete{entity.Name}(Int64 {idName}, Action<bool, string> callback)");
                     AppendLine("{");
                     TabIn();
                     DoWebRequest($"'/{entity.Name.ToLower()}/delete'", new[] { idName }, "false", () => {
@@ -936,7 +936,7 @@ namespace LunarModel
                 if (entity.HasEditableFields())
                 {
                     AppendLine("");
-                    AppendLine($"public void Edit{entity.Name}(UInt64 {idName}, Dictionary<string, string> entries, Action<bool, string> callback)");
+                    AppendLine($"public void Edit{entity.Name}(Int64 {idName}, Dictionary<string, string> entries, Action<bool, string> callback)");
                     AppendLine("{");
                     TabIn();
                     AppendLine($"if (entries.Count == 0)");
@@ -1037,7 +1037,7 @@ namespace LunarModel
 
 
                 /*AppendLine("");
-                AppendLine($"public void Get{entity.Name}(UInt64 ID, Action<{entity.Name}, string> callback)");
+                AppendLine($"public void Get{entity.Name}(Int64 ID, Action<{entity.Name}, string> callback)");
                 AppendLine("{");
                 TabIn();
                 // TODO id as arguments
@@ -1073,11 +1073,11 @@ namespace LunarModel
 
                         if (isUnique)
                         {
-                            AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}, string> callback)");
+                            AppendLine($"public void {methodName}(Int64 {fieldName}, Action<{reference.Name}, string> callback)");
                         }
                         else
                         {
-                            AppendLine($"public void {methodName}(UInt64 {fieldName}, Action<{reference.Name}[], string> callback)");
+                            AppendLine($"public void {methodName}(Int64 {fieldName}, Action<{reference.Name}[], string> callback)");
                         }
 
                         AppendLine("{");
@@ -1436,7 +1436,7 @@ namespace LunarModel
                     AppendLine($"this.Post(Prefix + \"/{varName}/delete/\", (request) =>");
                     AppendLine("{");
                     TabIn();
-                    ReadRequestVariable(idName, "UInt64");
+                    ReadRequestVariable(idName, "Int64");
                     CheckPermissions(varName, idName, "Delete");
                     AppendLine($"var result = Database.Delete{entity.Name}({idName});");
                     AppendLine($"return Response(result.ToString());");
@@ -1514,7 +1514,7 @@ namespace LunarModel
                     AppendLine("{");
                     TabIn();
 
-                    ReadRequestVariable(idName, "UInt64");
+                    ReadRequestVariable(idName, "Int64");
                     ReadRequestVariable("fields", "string");
                     ReadRequestVariable("values", "string");
                     CheckPermissions(varName, idName, "Write");
@@ -1577,7 +1577,7 @@ namespace LunarModel
                         AppendLine($"this.Post(Prefix + \"/{varName}/{targetName.ToLower()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                        ReadRequestVariable(idName, "UInt64");
+                        ReadRequestVariable(idName, "Int64");
                         CheckPermissions(varName, idName, "Read");
 
                         AppendLine("var result = DataNode.CreateObject(\"response\");");
@@ -1654,7 +1654,7 @@ namespace LunarModel
 
             AppendLine();
             AppendLine("public abstract User Authenticate(string creds, out string error);");
-            AppendLine("public abstract Permissions GetPermissions(User user, UInt64 targetID, string scheme);");
+            AppendLine("public abstract Permissions GetPermissions(User user, Int64 targetID, string scheme);");
 
             foreach (var entity in Entities)
             {
