@@ -149,7 +149,14 @@ namespace LunarModel
             {
                 if (other.Fields.Any(x => x.Type == entity.Name))
                 {
-                    result.Add(other);
+                    if (other.Fields.Any(x => x.Name == entity.Name))
+                    {
+                        result.Add(other);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Warning: Skipped possible reference to {entity.Name} in {other.Name}");
+                    }
                 }
             }
 
