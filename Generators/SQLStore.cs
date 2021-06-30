@@ -271,6 +271,7 @@ namespace LunarModel.Generators
             if (entity.Parent == null)
             {
                 model.AppendLine($"{varName}.ID = InsertRow(\"{_tableNames[entity]}\", dic);");
+                model.AppendLine($"if ({varName}.ID == 0) return null;"); 
             }
             else
             {
