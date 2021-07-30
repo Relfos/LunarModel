@@ -205,6 +205,9 @@ namespace LunarModel
 
         private void EndDoc(string fileName)
         {
+            var path = Directory.GetCurrentDirectory();
+            fileName = path + Path.DirectorySeparatorChar+ fileName;
+            Console.WriteLine("Exported " + fileName);
             File.WriteAllText(fileName, _sb.ToString());
         }
 

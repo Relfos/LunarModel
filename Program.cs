@@ -22,6 +22,8 @@ namespace LunarModel
             var model = compiler.Process(modelName, src, generator);
 
             model.Generate();
+
+            Console.WriteLine("Finished!");
         }
     }
 }

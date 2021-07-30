@@ -284,7 +284,7 @@ namespace LunarModel.Generators
         public override void Delete(Model model, Entity entity)
         {
             var varName = $"{entity.Name.CapLower()}ID";
-            model.AppendLine($"\treturn DeleteRow(\"{_tableNames[entity]}\", \"{varName}\", {varName});");
+            model.AppendLine($"\treturn DeleteRow(\"{_tableNames[entity]}\", \"id\", {varName});");
         }
 
         public override void Find(Model model, Entity entity, string field)
