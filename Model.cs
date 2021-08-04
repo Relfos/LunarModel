@@ -18,6 +18,7 @@ namespace LunarModel
         Internal = 8,
         Unique = 16,
         Dynamic = 32,
+        Nullable = 64,
     }
 
     public class Field
@@ -1164,13 +1165,13 @@ namespace LunarModel
             AppendLine();
         }
 
-        private void ReadRequestVariable(string varName, string type)
+        private void ReadRequestVariable(bool isNullable, string varName, string type)
         {
             AppendLine($"{type} {varName};");
             var temp = $"temp_{varName}";
             AppendLine($"var {temp} = request.GetVariable(\"{varName}\");");
 
-            ParseVariable(temp, varName, type);
+            ParseVariable(isNullable, temp, varName, type);
         }
 
         private void DoServerAuthCheck()
@@ -1194,11 +1195,18 @@ namespace LunarModel
             AppendLine();
         }
 
-        private void ParseVariable(string src, string dest, string type, bool useTemps = false)
+        private void ParseVariable(bool isNullable, string src, string dest, string type, bool useTemps = false)
         {
             AppendLine($"if (string.IsNullOrEmpty({src}))");
             AppendLine("{");
-            AppendLine($"\treturn Error(\"Missing argument: {dest}\");");
+            if (isNullable)
+            {
+                AppendLine($"\t{src} = \"\";");
+            }
+            else
+            {
+                AppendLine($"\treturn Error(\"Missing argument: {dest}\");");
+            }
             AppendLine("}");
 
             if (type.Equals("String", StringComparison.OrdinalIgnoreCase))
@@ -1268,7 +1276,9 @@ namespace LunarModel
                 var fieldName = decl.Name.CapLower();
                 fields += fieldName;
 
-                ReadRequestVariable(fieldName, decl.ExportType());
+                var isNullable = field.Flags.HasFlag(FieldFlags.Nullable);
+
+                ReadRequestVariable(isNullable, fieldName, decl.ExportType());
             }
 
             return fields;
@@ -1290,10 +1300,12 @@ namespace LunarModel
 
                 var decl = entity.Decls[field];
 
+                var isNullable = field.Flags.HasFlag(FieldFlags.Nullable);
+
                 AppendLine($"case \"{decl.Name}\":");
                 TabIn();
                 AppendLine($"{decl.ExportType()} {decl.Name};");
-                ParseVariable("value", $"{decl.Name}", decl.ExportType(), false);
+                ParseVariable(isNullable, "value", $"{decl.Name}", decl.ExportType(), false);
                 AppendLine($"Database.Edit{entity.Name}({varName}, \"{decl.Name}\", {decl.Name}.ToString());");
                 AppendLine($"break;");
                 AppendLine();
@@ -1460,7 +1472,7 @@ namespace LunarModel
                     AppendLine($"this.Post(Prefix + \"/{varName}/delete/\", (request) =>");
                     AppendLine("{");
                     TabIn();
-                    ReadRequestVariable(idName, "Int64");
+                    ReadRequestVariable(false ,idName, "Int64");
                     CheckPermissions(varName, idName, "Delete");
                     AppendLine($"var result = Database.Delete{entity.Name}({idName});");
                     AppendLine($"return Response(result.ToString());");
@@ -1486,8 +1498,8 @@ namespace LunarModel
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "List");
-                    ReadRequestVariable("page", "int");
-                    ReadRequestVariable("count", "int");
+                    ReadRequestVariable(false, "page", "int");
+                    ReadRequestVariable(false, "count", "int");
                     AppendLine($"var items = Database.List{entity.Name.Pluralize()}(page, count);");
                     AppendLine("var array =  " + serializationClass + ".ToArray(\"" + plural + "\", items, " + serializationClass + "." + entity.Name + "ToNode);");
                     AppendLine("var result = DataNode.CreateObject(\"response\");");
@@ -1511,7 +1523,7 @@ namespace LunarModel
                     AppendLine("{");
                     TabIn();
                     CheckPermissions(varName, "0", "List");
-                    ReadRequestVariable(pluralKeyName, "string");
+                    ReadRequestVariable(false, pluralKeyName, "string");
 
                     string filter = keyType.Equals("string", StringComparison.OrdinalIgnoreCase) ? "" : $"Select(x => {keyType}.Parse(x)).";
 
@@ -1538,9 +1550,9 @@ namespace LunarModel
                     AppendLine("{");
                     TabIn();
 
-                    ReadRequestVariable(idName, "Int64");
-                    ReadRequestVariable("fields", "string");
-                    ReadRequestVariable("values", "string");
+                    ReadRequestVariable(false, idName, "Int64");
+                    ReadRequestVariable(false, "fields", "string");
+                    ReadRequestVariable(false, "values", "string");
                     CheckPermissions(varName, idName, "Write");
                     AppendLine($"var {varName} = Database.Find{entity.Name}ByID({idName});");
 
@@ -1601,7 +1613,7 @@ namespace LunarModel
                         AppendLine($"this.Post(Prefix + \"/{varName}/{targetName.ToLower()}\",  (request) =>");
                         AppendLine("{");
                         TabIn();
-                        ReadRequestVariable(idName, "Int64");
+                        ReadRequestVariable(false, idName, "Int64");
                         CheckPermissions(varName, idName, "Read");
 
                         AppendLine("var result = DataNode.CreateObject(\"response\");");
